@@ -4,6 +4,7 @@ import TypingIndicator from '@/components/TypingIndicator';
 import { Typography } from '@/constants/Typography';
 import { useTheme } from '@/context/ThemeContext';
 import { chatData, conversations as mockConversations } from '@/data/mockData';
+import { apiService } from '@/services/apiService';
 import { Conversation, Message } from '@/types';
 import { getChatMessages, getSavedConversations, saveChatMessages, saveConversations, saveImageToGallery } from '@/utils/storage';
 import { Stack, useLocalSearchParams } from 'expo-router';
@@ -102,42 +103,58 @@ export default function ChatDetailScreen() {
       // Determine Model ID: use param if available, otherwise check if ID is a model ID, else default
       const modelIdToUse = (model as string) || (['gpt-5-2', 'gemini-3-pro', 'claude-sonnet-4-5', 'grok-4-1', 'deepseek-v3-2', 'perplexity'].includes(id as string) ? id : 'gpt-5-2');
 
-      // Get AI response from backend API
-      const { apiService } = await import('@/services/apiService');      // Call API
-      const response = await apiService.sendMessage(
-        text, 
-        [], 
-        model as string, 
-        id as string, 
-        topic as string,
-        imageUri  // Pass uploaded image
-      );
-      
-      // Check if image was generated
-      if (response.isImageGeneration && response.imageUrl) {
-        console.log('🎨 Image generated! Saving to gallery...');
-        
-        // Save to gallery
-        await saveImageToGallery({
-          id: `img-${Date.now()}`,
-          uri: response.imageUrl,
-          prompt: text,
+      // Determine stream vs regular
+      if (imageUri) {
+        // Use regular for images (vision usually doesn't need stream as much and is simpler)
+        const response = await apiService.sendMessage(
+          text, 
+          [], 
+          model as string, 
+          id as string, 
+          topic as string,
+          imageUri 
+        );
+
+        if (response.isImageGeneration && response.imageUrl) {
+          await saveImageToGallery({
+            id: `img-${Date.now()}`,
+            uri: response.imageUrl,
+            prompt: text,
+            timestamp: new Date().toISOString(),
+            model: model as string || 'monox-ai',
+          });
+        }
+
+        const botMessage: Message = {
+          id: Date.now().toString(),
+          text: response.response,
+          sender: 'ai',
           timestamp: new Date().toISOString(),
-          model: model as string || 'monox-ai',
-        });
+          imageUrl: response.imageUrl,
+        };
+        setMessages(prevMessages => [...prevMessages, botMessage]);
+      } else {
+        // STREAMING for text-only messages
+        const botMsgId = Date.now().toString();
         
-        console.log('✅ Image saved to gallery!');
+        // Initial empty bot message
+        setMessages(prev => [...prev, {
+          id: botMsgId,
+          text: '',
+          sender: 'ai',
+          timestamp: new Date().toISOString(),
+        }]);
+
+        await apiService.sendMessageStream(
+          text,
+          (fullText: string) => {
+            setMessages(prev => prev.map(m => 
+              m.id === botMsgId ? { ...m, text: fullText } : m
+            ));
+          }
+        );
       }
-      
-      const botMessage: Message = {
-        id: Date.now().toString(),
-        text: response.response,
-        sender: 'ai',
-        timestamp: new Date().toISOString(),
-        imageUrl: response.imageUrl, // Include image URL if present
-      };
-      
-      setMessages(prevMessages => [...prevMessages, botMessage]);
+
       
     } catch (error) {
       console.error('❌ Chat error:', error);

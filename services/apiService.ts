@@ -1,4 +1,5 @@
 import { API_CONFIG, API_ENDPOINTS } from '@/constants/Config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -9,6 +10,7 @@ export interface ChatRequest {
   message: string;
   history: ChatMessage[];
   modelId?: string;
+  systemInstruction?: string;
 }
 
 export interface ChatResponse {
@@ -31,6 +33,23 @@ export interface HealthResponse {
  * API Service for communicating with backend server
  */
 export const apiService = {
+  /**
+   * Bonus: Custom System Prompt persistence
+   */
+  getSystemPrompt: async () => {
+    try {
+      return await AsyncStorage.getItem('custom_system_prompt') || '';
+    } catch (e) {
+      return '';
+    }
+  },
+
+  saveSystemPrompt: async (prompt: string) => {
+    try {
+      await AsyncStorage.setItem('custom_system_prompt', prompt);
+    } catch (e) {}
+  },
+
   /**
    * Check if backend server is healthy
    */
@@ -61,21 +80,22 @@ export const apiService = {
     imageUri?: string
   ): Promise<ChatResponse> => {
     try {
+      const customPrompt = await apiService.getSystemPrompt();
       const requestBody = {
         message,
         history,
         modelId,
         conversationId,
         topic,
-        imageUri,  // Include image data
+        imageUri,
+        systemInstruction: customPrompt || undefined,
       };
 
       const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.CHAT}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'bypass-tunnel-reminder': 'true', // Bypass LocalTunnel warning
-          'User-Agent': 'Monox-Mobile-App', // Help identify as app
+          'bypass-tunnel-reminder': 'true',
         },
         body: JSON.stringify(requestBody),
       });
@@ -89,13 +109,70 @@ export const apiService = {
       return data;
     } catch (error: any) {
       console.error('API Error:', error);
-      
-      // User-friendly error messages
-      if (error.message.includes('Network request failed') || error.message.includes('Failed to fetch')) {
-        throw new Error('Tidak dapat terhubung ke server AI. Periksa koneksi internet Anda.');
-      }
-      
       throw new Error(error.message || 'Terjadi kesalahan saat memproses pesan Anda.');
+    }
+  },
+
+  /**
+   * Bonus: Streaming Support
+   */
+  sendMessageStream: async (
+    message: string,
+    onChunk: (text: string) => void,
+    imageUri?: string
+  ): Promise<string> => {
+    try {
+      const customPrompt = await apiService.getSystemPrompt();
+      const requestBody = {
+        message,
+        imageUri,
+        systemInstruction: customPrompt || undefined,
+      };
+
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'bypass-tunnel-reminder': 'true',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) throw new Error('Streaming failed');
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Response body is null');
+
+      const decoder = new TextDecoder();
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.replace('data: ', '').trim();
+            if (dataStr === '[DONE]') continue;
+            
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.text) {
+                fullText += parsed.text;
+                onChunk(fullText);
+              }
+              if (parsed.error) throw new Error(parsed.error);
+            } catch (e) {}
+          }
+        }
+      }
+      return fullText;
+    } catch (error: any) {
+      console.error('Streaming API Error:', error);
+      throw error;
     }
   },
 };

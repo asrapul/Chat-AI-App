@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Initialize Gemini
 // NOTE: In production, use keys from environment variables
@@ -20,11 +21,27 @@ export interface ChatMessage {
 }
 
 export const aiService = {
-  // Get chat model
-  getModel: (modelId?: string) => {
-    const instruction = modelId ? systemInstructions[modelId] : undefined;
+  // Bonus: Custom System Prompt persistence
+  getSystemPrompt: async () => {
+    try {
+      return await AsyncStorage.getItem('custom_system_prompt') || '';
+    } catch (e) {
+      return '';
+    }
+  },
+
+  saveSystemPrompt: async (prompt: string) => {
+    try {
+      await AsyncStorage.setItem('custom_system_prompt', prompt);
+    } catch (e) {}
+  },
+
+  getModel: async (modelId?: string) => {
+    const customPrompt = await aiService.getSystemPrompt();
+    const instruction = customPrompt || (modelId ? systemInstructions[modelId] : undefined);
+    
     return genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash", // Use 2.5-flash as strictly requested
+      model: "gemini-2.5-flash", 
       systemInstruction: instruction,
     });
   },
@@ -32,13 +49,9 @@ export const aiService = {
   // Send message and get response
   sendMessage: async (history: ChatMessage[], messageTokens: string, modelId?: string) => {
     try {
-      const model = aiService.getModel(modelId);
+      const model = await aiService.getModel(modelId);
       const chat = model.startChat({
         history: history,
-        generationConfig: {
-          maxOutputTokens: 1000,
-          temperature: 0.7,
-        },
       });
 
       const result = await chat.sendMessage(messageTokens);
@@ -47,22 +60,6 @@ export const aiService = {
     } catch (error) {
       console.error("AI Service Error:", error);
       throw error;
-    }
-  },
-
-  // Stream response (advanced)
-  sendMessageStream: async (history: ChatMessage[], messageTokens: string) => {
-    const model = aiService.getModel();
-    const chat = model.startChat({
-      history: history,
-    });
-
-    try {
-      const result = await chat.sendMessageStream(messageTokens);
-      return result.stream;
-    } catch (error) {
-       console.error("AI Stream Error:", error);
-       throw error;
     }
   }
 };

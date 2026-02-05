@@ -139,8 +139,54 @@ async function generateImage(prompt, retries = 3) {
 }
 
 // Chat endpoint with image generation and vision support
+// 🚀 New Streaming Endpoint (Bonus)
+app.post('/api/chat/stream', async (req, res) => {
+  const { message, systemInstruction: customInstruction, imageUri } = req.body;
+  
+  const modelName = 'gemini-2.5-flash';
+  console.log(`📡 Streaming request for ${modelName}`);
+
+  // Set headers for streaming
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      systemInstruction: customInstruction || systemInstruction,
+    });
+
+    if (imageUri) {
+      const base64Data = imageUri.replace(/^data:image\/\w+;base64,/, '');
+      const imagePart = { inlineData: { data: base64Data, mimeType: 'image/jpeg' } };
+      const result = await model.generateContentStream([message || 'What is this?', imagePart]);
+      
+      for await (const chunk of result.stream) {
+        const chunkText = chunk.text();
+        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+      }
+    } else {
+      const result = await model.generateContentStream(message);
+      
+      for await (const chunk of result.stream) {
+        const chunkText = chunk.text();
+        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+      }
+    }
+    
+    res.write('data: [DONE]\n\n');
+    res.end();
+    console.log(`✅ Streaming finished for ${modelName}`);
+  } catch (error) {
+    console.error('❌ Streaming failed:', error.message);
+    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+    res.end();
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
-  const { message, history, modelId, conversationId, topic, imageUri } = req.body;
+  const { message, history, modelId, conversationId, topic, imageUri, systemInstruction: customInstruction } = req.body;
   
   console.log('📨 Received chat request');
   console.log('   Message:', message?.substring(0, 50));
@@ -160,7 +206,7 @@ app.post('/api/chat', async (req, res) => {
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       tools: [imageGenerationTool],
-      systemInstruction: systemInstruction,
+      systemInstruction: customInstruction || systemInstruction,
     });
     
     let result;
