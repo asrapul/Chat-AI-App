@@ -2,8 +2,9 @@ import { Typography } from '@/constants/Typography';
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
-import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -12,23 +13,49 @@ import Animated, {
 } from 'react-native-reanimated';
 
 interface MessageInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, imageUri?: string) => void;
 }
 
 export default function MessageInput({ onSend }: MessageInputProps) {
   const { colors, isDark } = useTheme();
   const [message, setMessage] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const scale = useSharedValue(1);
   
   const handleSend = () => {
-    if (message.trim()) {
+    if (message.trim() || selectedImage) {
       scale.value = withSequence(
         withSpring(0.9, { damping: 10 }),
         withSpring(1, { damping: 10 })
       );
       
-      onSend(message.trim());
+      onSend(message.trim(), selectedImage || undefined);
       setMessage('');
+      setSelectedImage(null);
+    }
+  };
+  
+  const handlePickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      const base64 = `data:image/jpeg;base64,${asset.base64}`;
+      setSelectedImage(base64);
+    }
+  };
+  
+  const handleKeyPress = (e: any) => {
+    // On web: Enter (without Shift) sends message
+    if (e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
   };
   
@@ -41,12 +68,31 @@ export default function MessageInput({ onSend }: MessageInputProps) {
       <View style={[styles.glassWrapper, { borderColor: colors.glassBorder }]}>
         <BlurView intensity={isDark ? 30 : 50} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
         
+        {/* Image Preview */}
+        {selectedImage && (
+          <View style={styles.imagePreview}>
+            <Image source={{ uri: selectedImage }} style={styles.previewImage} />
+            <TouchableOpacity 
+              style={styles.removeImage}
+              onPress={() => setSelectedImage(null)}
+            >
+              <Ionicons name="close-circle" size={20} color="#FF4444" />
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {/* Image Picker Button */}
+        <TouchableOpacity onPress={handlePickImage} style={styles.attachButton}>
+          <Ionicons name="image" size={22} color={colors.textSecondary} />
+        </TouchableOpacity>
+        
         <TextInput
-          style={[styles.input, { color: colors.text }]}
+          style={[styles.input, { color: colors.text, outlineStyle: 'none' } as any]}
           placeholder="Type futuristic message..."
           placeholderTextColor={colors.textSecondary}
           value={message}
           onChangeText={setMessage}
+          onKeyPress={handleKeyPress}
           multiline
           maxLength={1000}
         />
@@ -60,7 +106,7 @@ export default function MessageInput({ onSend }: MessageInputProps) {
               }
             ]}
             onPress={handleSend}
-            disabled={!message.trim()}
+            disabled={!message.trim() && !selectedImage}
             activeOpacity={0.7}
           >
             <Ionicons 
@@ -101,7 +147,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     marginRight: 8,
     zIndex: 1,
-  },
+  } as any, // Allow web-specific styles
   sendButton: {
     width: 36,
     height: 36,
@@ -120,5 +166,27 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 10,
+  },
+  imagePreview: {
+    position: 'relative',
+    marginRight: 8,
+    marginBottom: 4,
+  },
+  previewImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  removeImage: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#000',
+    borderRadius: 10,
+  },
+  attachButton: {
+    marginRight: 8,
+    marginBottom: 8,
+    padding: 4,
   },
 });

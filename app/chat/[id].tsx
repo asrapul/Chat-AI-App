@@ -4,8 +4,8 @@ import TypingIndicator from '@/components/TypingIndicator';
 import { Typography } from '@/constants/Typography';
 import { useTheme } from '@/context/ThemeContext';
 import { chatData, conversations as mockConversations } from '@/data/mockData';
-import { Message } from '@/types';
-import { getChatMessages, saveChatMessages } from '@/utils/storage';
+import { Conversation, Message } from '@/types';
+import { getChatMessages, getSavedConversations, saveChatMessages, saveConversations, saveImageToGallery } from '@/utils/storage';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text } from 'react-native';
@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ChatDetailScreen() {
   const { colors, isDark } = useTheme();
-  const { id, model } = useLocalSearchParams();
+  const { id, model, topic, topicName, topicIcon } = useLocalSearchParams();
   const flatListRef = useRef<FlatList>(null);
   
   // Try to find in storage or mock
@@ -57,7 +57,7 @@ export default function ChatDetailScreen() {
   
   useEffect(() => {
     if (messages.length > 0 && !isLoading) {
-      saveChatMessages(id as string, messages);
+      saveChatMessages(id as string, messages, topic as string);
       
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
@@ -70,21 +70,30 @@ export default function ChatDetailScreen() {
     opacity: inputOpacity.value,
   }));
   
-  const handleSend = async (text: string) => {
+  const handleSend = async (text: string, imageUri?: string) => {
+    if (!text.trim() && !imageUri) return;
+    
     const userMessage: Message = {
       id: `${id}-${Date.now()}-user`,
-      text,
+      text: text || (imageUri ? '📷 Image' : ''),
       sender: 'user',
       timestamp: new Date().toISOString(),
+      imageUrl: imageUri,
     };
     
     // Add user message immediately
     const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
-    setIsTyping(true);
+    setMessages(updatedMessages);      
+      // Simulate typing
+      setIsTyping(true);
+    
+    // Create conversation entry if this is first message
+    if (messages.length === 0) {
+      await createConversation(text);
+    }
     
     try {
-      // Convert history for AI context
+      // Convert history for API context
       const history = messages.map(m => ({
         role: (m.sender === 'user' ? 'user' : 'model') as 'user' | 'model',
         parts: [{ text: m.text }]
@@ -93,24 +102,49 @@ export default function ChatDetailScreen() {
       // Determine Model ID: use param if available, otherwise check if ID is a model ID, else default
       const modelIdToUse = (model as string) || (['gpt-5-2', 'gemini-3-pro', 'claude-sonnet-4-5', 'grok-4-1', 'deepseek-v3-2', 'perplexity'].includes(id as string) ? id : 'gpt-5-2');
 
-      // Get AI response
-      await import('@/services/aiService').then(async ({ aiService }) => {
-        const responseText = await aiService.sendMessage(history, text, modelIdToUse as string);
+      // Get AI response from backend API
+      const { apiService } = await import('@/services/apiService');      // Call API
+      const response = await apiService.sendMessage(
+        text, 
+        [], 
+        model as string, 
+        id as string, 
+        topic as string,
+        imageUri  // Pass uploaded image
+      );
+      
+      // Check if image was generated
+      if (response.isImageGeneration && response.imageUrl) {
+        console.log('🎨 Image generated! Saving to gallery...');
         
-        const aiMessage: Message = {
-          id: `${id}-${Date.now()}-ai`,
-          text: responseText,
-          sender: 'ai',
+        // Save to gallery
+        await saveImageToGallery({
+          id: `img-${Date.now()}`,
+          uri: response.imageUrl,
+          prompt: text,
           timestamp: new Date().toISOString(),
-        };
+          model: model as string || 'monox-ai',
+        });
         
-        setMessages(prev => [...prev, aiMessage]);
-      });
+        console.log('✅ Image saved to gallery!');
+      }
+      
+      const botMessage: Message = {
+        id: Date.now().toString(),
+        text: response.response,
+        sender: 'ai',
+        timestamp: new Date().toISOString(),
+        imageUrl: response.imageUrl, // Include image URL if present
+      };
+      
+      setMessages(prevMessages => [...prevMessages, botMessage]);
       
     } catch (error) {
-      console.error('AI Error:', error);
+      console.error('❌ Chat error:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      
       const errorMessage: Message = {
-        id: `${id}-${Date.now()}-error`,
+        id: Date.now().toString(),
         text: "Sorry, I encountered an error connecting to the AI. Please try again.",
         sender: 'ai',
         timestamp: new Date().toISOString(),
@@ -121,13 +155,58 @@ export default function ChatDetailScreen() {
     }
   };
   
+  const createConversation = async (firstMessage: string) => {
+    try {
+      const savedConversations = await getSavedConversations() || [];
+      
+      // Check if conversation already exists
+      if (savedConversations.some(c => c.id === id)) {
+        return; // Already exists
+      }
+      
+      // Map icon names to Ionicons names
+      const iconMap: { [key: string]: string } = {
+        'ChatIcon': 'chatbubbles',
+        'ImageIcon': 'image',
+        'VideoIcon': 'videocam',
+        'AudioIcon': 'musical-notes',
+        'CodeIcon': 'code-slash',
+        'AnalyticsIcon': 'bar-chart',
+      };
+      
+      // Generate title from first message (first 40 chars)
+      let title = firstMessage.substring(0, 40);
+      if (firstMessage.length > 40) {
+        title += '...';
+      }
+      
+      const newConversation: Conversation = {
+        id: id as string,
+        title: title, // Use first prompt as title
+        lastMessage: firstMessage.substring(0, 60) + (firstMessage.length > 60 ? '...' : ''),
+        timestamp: new Date().toISOString(),
+        avatar: topicIcon as string || 'chatbubbles',
+        unread: 0,
+        topic: topic as any,
+      };
+      
+      // Add to beginning of list (most recent first)
+      const updatedConversations = [newConversation, ...savedConversations];
+      await saveConversations(updatedConversations);
+      
+      console.log('✅ Created new conversation:', newConversation.title);
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+    }
+  };
+  
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <Stack.Screen 
         options={{
           headerTitle: () => (
             <Text style={{ ...Typography.subHeader, fontSize: 17, color: colors.text }}>
-              {conversation?.title || 'Chatbot AI'}
+              {(topicName as string) || 'Monox AI'}
             </Text>
           ),
           headerStyle: { backgroundColor: colors.background },
@@ -141,7 +220,7 @@ export default function ChatDetailScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <FlatList
+      <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
@@ -151,7 +230,7 @@ export default function ChatDetailScreen() {
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           ListFooterComponent={isTyping ? <TypingIndicator /> : null}
         />
-        
+
         <Animated.View style={inputAnimatedStyle}>
           <MessageInput onSend={handleSend} />
         </Animated.View>
@@ -169,5 +248,10 @@ const styles = StyleSheet.create({
   },
   messageList: {
     paddingVertical: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

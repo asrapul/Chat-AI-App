@@ -2,6 +2,7 @@ import { SCALE, SPRING_CONFIG } from '@/constants/Animations';
 import { Typography } from '@/constants/Typography';
 import { useTheme } from '@/context/ThemeContext';
 import { Conversation } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
@@ -14,10 +15,24 @@ import Avatar from './Avatar';
 interface ConversationItemProps {
   conversation: Conversation;
   onPress: () => void;
+  onLongPress?: () => void;
+  onDelete?: () => void;
   index?: number;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }
 
-export default function ConversationItem({ conversation, onPress, index = 0 }: ConversationItemProps) {
+export default function ConversationItem({ 
+  conversation, 
+  onPress, 
+  onLongPress, 
+  onDelete, 
+  index = 0,
+  selectionMode = false,
+  isSelected = false,
+  onSelect
+}: ConversationItemProps) {
   const { colors } = useTheme();
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0);
@@ -33,15 +48,36 @@ export default function ConversationItem({ conversation, onPress, index = 0 }: C
     scale.value = withSpring(SCALE.PRESS, SPRING_CONFIG.SNAPPY);
   };
   
+  const handleDelete = (e: any) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (onDelete) {
+      onDelete();
+    }
+  };
+  
   // No complex animations for list items - instant load like standard messengers
   
   return (
     <TouchableOpacity
       style={styles.container}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={300}
       activeOpacity={0.7}
     >
       <View style={styles.content}>
+        {selectionMode && (
+          <View style={styles.selectionIndicator}>
+            <Ionicons 
+              name={isSelected ? "checkmark-circle" : "ellipse-outline"} 
+              size={24} 
+              color={isSelected ? colors.primary : colors.textSecondary} 
+            />
+          </View>
+        )}
+        
         {conversation.avatar && (conversation.avatar.startsWith('http') || conversation.avatar.startsWith('file') || conversation.avatar.startsWith('data')) ? (
           <Avatar imageUri={conversation.avatar} size="medium" />
         ) : (
@@ -50,12 +86,16 @@ export default function ConversationItem({ conversation, onPress, index = 0 }: C
         
         <View style={styles.textContainer}>
           <View style={styles.topRow}>
-            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-              {conversation.title}
-            </Text>
-            <Text style={[styles.time, { color: colors.textSecondary }]}>
-              {conversation.timestamp}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+              <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+                {conversation.title}
+              </Text>
+            </View>
+            <View style={styles.rightActions}>
+              <Text style={[styles.time, { color: colors.textSecondary }]}>
+                {conversation.timestamp}
+              </Text>
+            </View>
           </View>
           
           <Text style={[
@@ -92,6 +132,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   title: {
     ...Typography.subHeader,
     fontSize: 16,
@@ -102,9 +147,17 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontSize: 12,
   },
+  deleteButton: {
+    padding: 4,
+  },
   preview: {
     ...Typography.body,
     fontSize: 14,
     lineHeight: 20,
+  },
+  selectionIndicator: {
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

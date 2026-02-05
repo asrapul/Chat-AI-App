@@ -2,14 +2,14 @@ import SplashScreen from '@/components/SplashScreen';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { getOnboardingCompleted } from '@/utils/storage';
 import {
-  Poppins_400Regular,
-  Poppins_500Medium,
-  Poppins_600SemiBold
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold
 } from '@expo-google-fonts/poppins';
 import {
-  Sora_400Regular,
-  Sora_600SemiBold,
-  Sora_700Bold
+    Sora_400Regular,
+    Sora_600SemiBold,
+    Sora_700Bold
 } from '@expo-google-fonts/sora';
 import * as Font from 'expo-font';
 import { Stack, router } from 'expo-router';
@@ -20,7 +20,7 @@ import 'react-native-reanimated';
 
 function RootLayoutContent() {
   const { colorScheme } = useTheme();
-  // Initially true to show splash
+  // Initially false to bypass splash (DEBUG)
   const [showSplash, setShowSplash] = useState(true);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -29,6 +29,15 @@ function RootLayoutContent() {
 
   useEffect(() => {
     prepare();
+    
+    // Global safety net: Force ready after 5 seconds
+    const safetyTimer = setTimeout(() => {
+      console.log('⚠️ Safety timer triggered: Forcing app ready');
+      setFontsLoaded(true);
+      setIsReady(true);
+    }, 5000);
+    
+    return () => clearTimeout(safetyTimer);
   }, []);
 
   // Transition from splash to app when everything is ready
@@ -48,14 +57,18 @@ function RootLayoutContent() {
       setNeedsOnboarding(!completed);
 
       // Load Fonts
-      await Font.loadAsync({
-        'Sora-Regular': Sora_400Regular,
-        'Sora-SemiBold': Sora_600SemiBold,
-        'Sora-Bold': Sora_700Bold,
-        'Poppins-Regular': Poppins_400Regular,
-        'Poppins-Medium': Poppins_500Medium,
-        'Poppins-SemiBold': Poppins_600SemiBold,
-      });
+      // Load Fonts with timeout
+      await Promise.race([
+        Font.loadAsync({
+          'Sora-Regular': Sora_400Regular,
+          'Sora-SemiBold': Sora_600SemiBold,
+          'Sora-Bold': Sora_700Bold,
+          'Poppins-Regular': Poppins_400Regular,
+          'Poppins-Medium': Poppins_500Medium,
+          'Poppins-SemiBold': Poppins_600SemiBold,
+        }),
+        new Promise(resolve => setTimeout(resolve, 3000)) // 3s fallback
+      ]);
     } catch (e) {
       console.warn('Font Load Error:', e);
     } finally {

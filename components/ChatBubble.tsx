@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Speech from 'expo-speech';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import Animated, {
     useAnimatedStyle,
@@ -115,6 +115,15 @@ export default function ChatBubble({ message, index = 0 }: ChatBubbleProps) {
                 <Text style={[styles.aiName, { color: colors.textSecondary }]}>Assistant</Text>
               </View>
               
+              {/* Display generated image if present */}
+              {message.imageUrl && (
+                <Image 
+                  source={{ uri: message.imageUrl }} 
+                  style={styles.generatedImage}
+                  resizeMode="cover"
+                />
+              )}
+
               <Markdown style={markdownStyles}>
                 {message.text}
               </Markdown>
@@ -141,6 +150,14 @@ export default function ChatBubble({ message, index = 0 }: ChatBubbleProps) {
               end={{ x: 1, y: 1 }}
               style={styles.userGradient}
             >
+              {/* Display uploaded image if present */}
+              {message.imageUrl && (
+                <Image 
+                  source={{ uri: message.imageUrl }} 
+                  style={styles.userImage}
+                  resizeMode="cover"
+                />
+              )}
               <Text style={[styles.userText, { color: colors.userBubbleText }]}>{message.text}</Text>
             </LinearGradient>
             <View style={[styles.glow, { backgroundColor: colors.primary, shadowColor: colors.primary }]} />
@@ -240,6 +257,16 @@ const styles = StyleSheet.create({
     marginRight: 20,
     opacity: 0.8,
   },
+  generatedImage: {
+    width: '100%',
+    aspectRatio: 1, // Square 512x512
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  userImage: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
 });
-
-

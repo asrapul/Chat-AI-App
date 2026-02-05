@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quick Test</title>
+</head>
+<body>
+    <h1>API Test Page</h1>
+    <button onclick="testAPI()">Test API</button>
+    <button onclick="testChat()">Test Chat</button>
+    <pre id="result"></pre>
+
+    <script>
+        async function testAPI() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing /api/test endpoint...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/api/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({test: 'hello'})
+                });
+                const data = await response.json();
+                result.textContent = 'SUCCESS!\n' + JSON.stringify(data, null, 2);
+            } catch (error) {
+                result.textContent = 'ERROR: ' + error.message;
+            }
+        }
+
+        async function testChat() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing /api/chat endpoint...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: 'Hello',
+                        history: [],
+                        modelId: 'gemini-3-pro'
+                    })
+                });
+                const data = await response.json();
+                result.textContent = 'SUCCESS!\n' + JSON.stringify(data, null, 2);
+            } catch (error) {
+                result.textContent = 'ERROR: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

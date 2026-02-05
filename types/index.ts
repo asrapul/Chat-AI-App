@@ -5,6 +5,8 @@ export interface Conversation {
   timestamp: string;
   avatar: string;
   unread?: number;
+  isPinned?: boolean;
+  topic?: 'general' | 'coding' | 'image' | 'translate' | 'other';
 }
 
 export interface Message {
@@ -12,6 +14,7 @@ export interface Message {
   text: string;
   sender: 'ai' | 'user';
   timestamp: string;
+  imageUrl?: string; // For image generation
 }
 
 export interface ProfileMenuItem {

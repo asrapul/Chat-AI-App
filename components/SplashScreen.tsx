@@ -107,7 +107,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
               <Ionicons name="chatbubbles" size={60} color="#FFFFFF" />
             </LinearGradient>
             
-            <Text style={[styles.title, { color: colors.text }]}>Chat AI</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Monox AI</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your Intelligent Companion</Text>
           </Animated.View>
         </BlurView>

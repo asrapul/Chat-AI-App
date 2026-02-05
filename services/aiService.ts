@@ -24,7 +24,7 @@ export const aiService = {
   getModel: (modelId?: string) => {
     const instruction = modelId ? systemInstructions[modelId] : undefined;
     return genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash", // Use flash for speed, or pro for better reasoning
+      model: "gemini-2.5-flash", // Use 2.5-flash as strictly requested
       systemInstruction: instruction,
     });
   },
