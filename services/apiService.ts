@@ -118,7 +118,7 @@ export const apiService = {
    */
   sendMessageStream: async (
     message: string,
-    onChunk: (text: string) => void,
+    onChunk: (data: { text?: string; imageUrl?: string; isImageGeneration?: boolean; error?: string }) => void,
     imageUri?: string
   ): Promise<string> => {
     try {
@@ -145,27 +145,43 @@ export const apiService = {
 
       const decoder = new TextDecoder();
       let fullText = '';
+      let lineBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        lineBuffer += chunk;
+        
+        const lines = lineBuffer.split('\n');
+        // Keep the last partial line in the buffer
+        lineBuffer = lines.pop() || '';
         
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.replace('data: ', '').trim();
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+          
+          if (trimmedLine.startsWith('data: ')) {
+            const dataStr = trimmedLine.replace('data: ', '').trim();
             if (dataStr === '[DONE]') continue;
             
             try {
-              const parsed = JSON.parse(dataStr);
-              if (parsed.text) {
-                fullText += parsed.text;
-                onChunk(fullText);
+              if (lineBuffer.length > 5000) {
+                console.log(`📦 Large line buffer: ${lineBuffer.length} chars`);
               }
-              if (parsed.error) throw new Error(parsed.error);
-            } catch (e) {}
+              const parsed = JSON.parse(dataStr);
+              console.log('📡 SSE Parsed Chunk:', !!parsed.text, !!parsed.imageUrl);
+              if (parsed.text !== undefined) {
+                fullText += parsed.text;
+                onChunk({ ...parsed, text: fullText });
+              } else if (parsed.imageUrl || parsed.error) {
+                onChunk(parsed);
+              }
+            } catch (e) {
+              console.warn('Failed to parse SSE data chunk. Buffer length:', trimmedLine.length);
+              console.warn('Error:', e);
+            }
           }
         }
       }

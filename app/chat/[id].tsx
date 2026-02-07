@@ -147,10 +147,38 @@ export default function ChatDetailScreen() {
 
         await apiService.sendMessageStream(
           text,
-          (fullText: string) => {
-            setMessages(prev => prev.map(m => 
-              m.id === botMsgId ? { ...m, text: fullText } : m
-            ));
+          async (data) => {
+            if (data.isImageGeneration && data.imageUrl) {
+              console.log('🎨 Generated image detected in stream!');
+              setMessages(prev => prev.map(m => 
+                m.id === botMsgId ? { 
+                  ...m, 
+                  text: data.text || m.text, 
+                  imageUrl: data.imageUrl,
+                } : m
+              ));
+
+              // Save to gallery
+              try {
+                const { saveImageToGallery } = await import('@/utils/storage');
+                await saveImageToGallery({
+                  id: `img-${Date.now()}`,
+                  uri: data.imageUrl as string,
+                  prompt: text,
+                  timestamp: new Date().toISOString(),
+                  model: model as string || 'monox-ai',
+                });
+              } catch (e) {
+                console.error('Failed to save streamed image:', e);
+              }
+              return; // Stop processing further chunks for this message
+            }
+
+            if (data.text !== undefined) {
+              setMessages(prev => prev.map(m => 
+                m.id === botMsgId ? { ...m, text: data.text || '' } : m
+              ));
+            }
           }
         );
       }

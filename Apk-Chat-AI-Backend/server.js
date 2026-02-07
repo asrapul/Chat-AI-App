@@ -143,7 +143,7 @@ async function generateImage(prompt, retries = 3) {
 app.post('/api/chat/stream', async (req, res) => {
   const { message, systemInstruction: customInstruction, imageUri } = req.body;
   
-  const modelName = 'gemini-2.5-flash';
+  const modelName = 'gemini-1.5-flash';
   console.log(`📡 Streaming request for ${modelName}`);
 
   // Set headers for streaming
@@ -152,30 +152,66 @@ app.post('/api/chat/stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   try {
+    const isImageRequest = /buatkan gambar|generate image|draw|create image|visualize/i.test(message);
+    
     const model = genAI.getGenerativeModel({ 
       model: modelName,
+      tools: [imageGenerationTool],
       systemInstruction: customInstruction || systemInstruction,
+      toolConfig: isImageRequest ? { functionCallingConfig: { mode: "ANY", allowedFunctionNames: ["generate_image"] } } : undefined,
     });
 
+    console.log(`🧠 AI Mode: ${isImageRequest ? 'FORCED IMAGE GEN' : 'AUTO'}`);
+
+    let result;
     if (imageUri) {
       const base64Data = imageUri.replace(/^data:image\/\w+;base64,/, '');
       const imagePart = { inlineData: { data: base64Data, mimeType: 'image/jpeg' } };
-      const result = await model.generateContentStream([message || 'What is this?', imagePart]);
-      
-      for await (const chunk of result.stream) {
-        const chunkText = chunk.text();
-        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
-      }
+      result = await model.generateContentStream([message || 'What is this?', imagePart]);
     } else {
-      const result = await model.generateContentStream(message);
-      
-      for await (const chunk of result.stream) {
+      result = await model.generateContentStream(message);
+    }
+
+    let isFunctionCall = false;
+    for await (const chunk of result.stream) {
+      const calls = chunk.functionCalls();
+      if (calls && calls.length > 0) {
+        isFunctionCall = true;
+        const functionCall = calls[0];
+        if (functionCall.name === 'generate_image') {
+          const imagePrompt = functionCall.args.prompt;
+          console.log(`🎨 Streaming endpoint: Generating image for "${imagePrompt}"...`);
+          try {
+            const imageUrl = await generateImage(imagePrompt, 1);
+            const dataPacket = { 
+              text: `Here is your image of "${imagePrompt}"`, 
+              imageUrl: imageUrl,
+              isImageGeneration: true 
+            };
+            console.log(`📦 SSE: Sending image packet (${imageUrl.length} chars)`);
+            res.write(`data: ${JSON.stringify(dataPacket)}\n\n`);
+          } catch (err) {
+            res.write(`data: ${JSON.stringify({ error: `Gagal membuat gambar: ${err.message}` })}\n\n`);
+          }
+        }
+        break; // Exit loop after handling function call
+      }
+
+      try {
         const chunkText = chunk.text();
-        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+        if (chunkText) {
+          res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+        }
+      } catch (e) {
+        // Skip if no text (e.g. just function call chunk)
       }
     }
     
-    res.write('data: [DONE]\n\n');
+    if (!isFunctionCall) {
+      res.write('data: [DONE]\n\n');
+    } else {
+      res.write('data: [DONE]\n\n');
+    }
     res.end();
     console.log(`✅ Streaming finished for ${modelName}`);
   } catch (error) {
@@ -198,7 +234,7 @@ app.post('/api/chat', async (req, res) => {
     });
   }
 
-  const modelName = 'gemini-2.5-flash';
+  const modelName = 'gemini-1.5-flash';
   
   try {
     console.log(`🤖 Attempting with model: ${modelName}...`);

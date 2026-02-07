@@ -5,10 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Speech from 'expo-speech';
 import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import Animated, {
     useAnimatedStyle,
@@ -117,11 +118,16 @@ export default function ChatBubble({ message, index = 0 }: ChatBubbleProps) {
               
               {/* Display generated image if present */}
               {message.imageUrl && (
-                <Image 
-                  source={{ uri: message.imageUrl }} 
-                  style={styles.generatedImage}
-                  resizeMode="cover"
-                />
+                <>
+                  {console.log('🖼️ ChatBubble rendering image:', message.imageUrl.substring(0, 50))}
+                  <Image 
+                    key={`img-${message.id}-${message.imageUrl.length}`} 
+                    source={{ uri: message.imageUrl }} 
+                    style={styles.generatedImage}
+                    contentFit="cover"
+                    transition={500}
+                  />
+                </>
               )}
 
               <Markdown style={markdownStyles}>
@@ -259,7 +265,8 @@ const styles = StyleSheet.create({
   },
   generatedImage: {
     width: '100%',
-    aspectRatio: 1, // Square 512x512
+    aspectRatio: 1,
+    minHeight: 300,
     borderRadius: 12,
     marginBottom: 12,
   },
