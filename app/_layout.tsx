@@ -69,6 +69,15 @@ function RootLayoutContent() {
         }),
         new Promise(resolve => setTimeout(resolve, 3000)) // 3s fallback
       ]);
+      
+      // Setup notification handling
+      const { addNotificationResponseReceivedListener } = await import('@/utils/notifications');
+      addNotificationResponseReceivedListener((response) => {
+        const data = response.notification.request.content.data;
+        if (data.type === 'digest' && data.digestId) {
+          router.push(`/digest/${data.digestId}`);
+        }
+      });
     } catch (e) {
       console.warn('Font Load Error:', e);
     } finally {
@@ -108,6 +117,18 @@ function RootLayoutContent() {
           options={{ 
             headerShown: false,
             presentation: 'modal',
+          }} 
+        />
+        <Stack.Screen 
+          name="digest/history" 
+          options={{ 
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="digest/[id]" 
+          options={{ 
+            headerShown: false,
           }} 
         />
       </Stack>

@@ -2,6 +2,11 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+// Digest feature imports
+import { generateDigest } from './digestService.js';
+import { testPushNotification } from './pushService.js';
+import { sendManualDigest, startDigestScheduler } from './scheduler.js';
+import { getAllUsers, getDigestById, getUserDigests, saveUserSettings } from './userStore.js';
 
 dotenv.config();
 
@@ -143,7 +148,7 @@ async function generateImage(prompt, retries = 3) {
 app.post('/api/chat/stream', async (req, res) => {
   const { message, systemInstruction: customInstruction, imageUri } = req.body;
   
-  const modelName = 'gemini-1.5-flash';
+  const modelName = 'gemini-2.5-flash';
   console.log(`📡 Streaming request for ${modelName}`);
 
   // Set headers for streaming
@@ -234,7 +239,7 @@ app.post('/api/chat', async (req, res) => {
     });
   }
 
-  const modelName = 'gemini-1.5-flash';
+  const modelName = 'gemini-2.5-flash';
   
   try {
     console.log(`🤖 Attempting with model: ${modelName}...`);
@@ -315,8 +320,134 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 📰 DAILY DIGEST ENDPOINTS
+// ═══════════════════════════════════════════════════════════════
+
+// Save user digest settings
+app.post('/api/digest/settings', async (req, res) => {
+  try {
+    const { userId, digestTimeUTC, topic, customPrompt, digestEnabled, pushToken } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    
+    const settings = {
+      userId,
+      digestTimeUTC: Number(digestTimeUTC), // Hour in UTC (0-23)
+      topic: topic || 'Teknologi',
+      customPrompt: customPrompt || null,
+      digestEnabled: digestEnabled !== undefined ? digestEnabled : true,
+      pushToken: pushToken || null,
+    };
+    
+    const saved = await saveUserSettings(settings);
+    console.log(`✅ Digest settings saved for ${userId}`);
+    
+    res.json({ success: true, settings: saved });
+  } catch (error) {
+    console.error('❌ Save settings error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get user digest history
+app.get('/api/digest/history/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const limit = parseInt(req.query.limit) || 30;
+    
+    const digests = await getUserDigests(userId, limit);
+    res.json({ success: true, digests });
+  } catch (error) {
+    console.error('❌ Get history error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get specific digest by ID
+app.get('/api/digest/:digestId', async (req, res) => {
+  try {
+    const { digestId } = req.params;
+    const digest = await getDigestById(digestId);
+    
+    if (!digest) {
+      return res.status(404).json({ error: 'Digest not found' });
+    }
+    
+    res.json({ success: true, digest });
+  } catch (error) {
+    console.error('❌ Get digest error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manual test endpoint - generate digest without scheduling
+app.post('/api/test-digest', async (req, res) => {
+  try {
+    const { topic, customPrompt } = req.body;
+    
+    if (!topic) {
+      return res.status(400).json({ error: 'topic is required' });
+    }
+    
+    console.log(`🧪 Manual digest test: ${topic}`);
+    const digest = await generateDigest(topic, customPrompt);
+    
+    res.json({ success: true, digest });
+  } catch (error) {
+    console.error('❌ Test digest error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Send manual digest to specific user (for testing)
+app.post('/api/send-digest/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await sendManualDigest(userId);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Send digest error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test push notification
+app.post('/api/test-push', async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    
+    if (!pushToken) {
+      return res.status(400).json({ error: 'pushToken is required' });
+    }
+    
+    const result = await testPushNotification(pushToken);
+    res.json({ success: result.success, result });
+  } catch (error) {
+    console.error('❌ Test push error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all users (for debugging)
+app.get('/api/digest/users', async (req, res) => {
+  try {
+    const users = await getAllUsers();
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Chat AI Backend running on http://localhost:${PORT}`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/chat`);
   console.log(`🔑 Gemini API Key: ${process.env.GOOGLE_API_KEY ? '✅ Loaded' : '❌ Missing'}`);
+  
+  // Start digest scheduler
+  console.log('\n📰 Starting Daily Digest Scheduler...');
+  startDigestScheduler();
 });

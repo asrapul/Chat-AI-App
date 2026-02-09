@@ -3,6 +3,7 @@ export const Colors = {
     // Backgrounds
     background: '#F0F2F5',
     cardBackground: 'rgba(255, 255, 255, 0.8)', // Glass-ready
+    card: 'rgba(255, 255, 255, 0.8)', // Alias for cardBackground
     inputBackground: '#FFFFFF',
     
     // Text
@@ -45,6 +46,7 @@ export const Colors = {
     // Backgrounds
     background: '#050505', // Deep Black
     cardBackground: 'rgba(28, 28, 30, 0.7)', // Glass Effect
+    card: 'rgba(28, 28, 30, 0.7)', // Alias for cardBackground
     inputBackground: 'rgba(44, 44, 46, 0.8)',
     
     // Text

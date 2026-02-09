@@ -1,0 +1,8 @@
+{
+  "userId": "test-user-1",
+  "digestTimeUTC": 7,
+  "topic": "Teknologi",
+  "customPrompt": "Fokus pada berita AI dan machine learning",
+  "digestEnabled": true,
+  "pushToken": "test-token-123"
+}

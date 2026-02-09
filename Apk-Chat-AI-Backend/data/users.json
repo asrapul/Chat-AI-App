@@ -1,0 +1,31 @@
+[
+  {
+    "userId": "user-1770440329886",
+    "digestTimeUTC": 5,
+    "topic": "Internasional",
+    "customPrompt": "berikan berita mengenai dunia crypto internasional",
+    "digestEnabled": false,
+    "pushToken": null,
+    "createdAt": "2026-02-07T05:00:23.087Z",
+    "updatedAt": "2026-02-08T23:19:16.286Z"
+  },
+  {
+    "userId": "test-user-1",
+    "digestTimeUTC": 5,
+    "topic": "Bisnis",
+    "customPrompt": "internasional bussiness",
+    "digestEnabled": false,
+    "pushToken": null,
+    "createdAt": "2026-02-07T05:11:30.416Z",
+    "updatedAt": "2026-02-09T00:14:01.925Z"
+  },
+  {
+    "userId": "test-web-user",
+    "digestTimeUTC": 5,
+    "topic": "Bisnis",
+    "customPrompt": "test prompt",
+    "digestEnabled": true,
+    "pushToken": null,
+    "createdAt": "2026-02-09T00:12:01.045Z"
+  }
+]
