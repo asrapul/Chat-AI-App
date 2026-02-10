@@ -80,8 +80,9 @@ async function processUserDigest(user) {
 /**
  * Manual digest delivery (for testing)
  * @param {string} userId - User ID to send digest to
+ * @param {Object} [overrides] - Optional overrides for topic/customPrompt from request body
  */
-export async function sendManualDigest(userId) {
+export async function sendManualDigest(userId, overrides = {}) {
   const { getAllUsers, saveUserSettings } = await import('./userStore.js');
   const users = await getAllUsers();
   let user = users.find(u => u.userId === userId);
@@ -91,16 +92,24 @@ export async function sendManualDigest(userId) {
     console.log(`📝 Creating default settings for user: ${userId}`);
     user = {
       userId,
-      topic: 'Teknologi',
-      customPrompt: null,
+      topic: overrides.topic || 'Teknologi',
+      customPrompt: overrides.customPrompt || null,
       digestEnabled: false,
       digestTimeUTC: 8,
     };
     await saveUserSettings(user);
   }
   
+  // Apply overrides from request body (Generate Now button sends current form values)
+  if (overrides.topic) {
+    user = { ...user, topic: overrides.topic };
+  }
+  if (overrides.customPrompt !== undefined) {
+    user = { ...user, customPrompt: overrides.customPrompt };
+  }
+  
   // Manual digest bypasses digestEnabled check - user explicitly requested it
-  console.log(`📰 Manual digest requested for ${userId} (enabled: ${user.digestEnabled})`);
+  console.log(`📰 Manual digest requested for ${userId} (topic: ${user.topic})`);
   
   await processUserDigest(user);
   return { success: true, message: 'Manual digest sent successfully' };

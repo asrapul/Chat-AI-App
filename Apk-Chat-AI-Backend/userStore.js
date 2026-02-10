@@ -117,11 +117,6 @@ export async function getUserDigests(userId, limit = 30) {
   }
 }
 
-/**
- * Get a specific digest by ID
- * @param {string} digestId - Digest ID
- * @returns {Promise<Object|null>} Digest object or null
- */
 export async function getDigestById(digestId) {
   try {
     const data = await fs.readFile(DIGESTS_FILE, 'utf-8');
@@ -131,5 +126,53 @@ export async function getDigestById(digestId) {
     
   } catch (error) {
     return null;
+  }
+}
+
+/**
+ * Delete a specific digest
+ * @param {string} digestId 
+ * @returns {Promise<boolean>} True if deleted
+ */
+export async function deleteDigest(digestId) {
+  try {
+    const data = await fs.readFile(DIGESTS_FILE, 'utf-8');
+    let digests = JSON.parse(data);
+    
+    const initialLength = digests.length;
+    digests = digests.filter(d => d.id !== digestId);
+    
+    if (digests.length !== initialLength) {
+      await fs.writeFile(DIGESTS_FILE, JSON.stringify(digests, null, 2));
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Delete digest error:', error);
+    return false;
+  }
+}
+
+/**
+ * Clear all digests for a user
+ * @param {string} userId 
+ * @returns {Promise<boolean>} True if deleted any
+ */
+export async function clearUserDigests(userId) {
+  try {
+    const data = await fs.readFile(DIGESTS_FILE, 'utf-8');
+    let digests = JSON.parse(data);
+    
+    const initialLength = digests.length;
+    digests = digests.filter(d => d.userId !== userId);
+    
+    if (digests.length !== initialLength) {
+      await fs.writeFile(DIGESTS_FILE, JSON.stringify(digests, null, 2));
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Clear user digests error:', error);
+    return false;
   }
 }

@@ -6,7 +6,7 @@ import express from 'express';
 import { generateDigest } from './digestService.js';
 import { testPushNotification } from './pushService.js';
 import { sendManualDigest, startDigestScheduler } from './scheduler.js';
-import { getAllUsers, getDigestById, getUserDigests, saveUserSettings } from './userStore.js';
+import { clearUserDigests, deleteDigest, getAllUsers, getDigestById, getUserDigests, saveUserSettings } from './userStore.js';
 
 dotenv.config();
 
@@ -327,16 +327,25 @@ app.post('/api/chat', async (req, res) => {
 // Save user digest settings
 app.post('/api/digest/settings', async (req, res) => {
   try {
-    const { userId, digestTimeUTC, topic, customPrompt, digestEnabled, pushToken } = req.body;
+    const { userId, digestTimeUTC, topic, topics, customPrompt, digestEnabled, pushToken } = req.body;
     
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
     }
     
+    // Handle both 'topics' (array from frontend) and 'topic' (string)
+    let resolvedTopic = 'Teknologi';
+    if (topics && Array.isArray(topics) && topics.length > 0) {
+      resolvedTopic = topics.join(', ');
+    } else if (topic) {
+      resolvedTopic = topic;
+    }
+    
     const settings = {
       userId,
       digestTimeUTC: Number(digestTimeUTC), // Hour in UTC (0-23)
-      topic: topic || 'Teknologi',
+      topic: resolvedTopic,
+      topics: topics || (topic ? [topic] : ['Teknologi']),
       customPrompt: customPrompt || null,
       digestEnabled: digestEnabled !== undefined ? digestEnabled : true,
       pushToken: pushToken || null,
@@ -383,6 +392,38 @@ app.get('/api/digest/:digestId', async (req, res) => {
   }
 });
 
+// Clear all digests for a user (MUST be before /:digestId to avoid matching 'history' as digestId)
+app.delete('/api/digest/history/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const cleared = await clearUserDigests(userId);
+    
+    console.log(`🗑️ All digests cleared for user ${userId}`);
+    res.json({ success: true, cleared });
+  } catch (error) {
+    console.error('❌ Clear history error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a specific digest
+app.delete('/api/digest/:digestId', async (req, res) => {
+  try {
+    const { digestId } = req.params;
+    const deleted = await deleteDigest(digestId);
+    
+    if (deleted) {
+      console.log(`🗑️ Digest ${digestId} deleted`);
+      res.json({ success: true, message: 'Digest deleted' });
+    } else {
+      res.status(404).json({ success: false, error: 'Digest not found' });
+    }
+  } catch (error) {
+    console.error('❌ Delete digest error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Manual test endpoint - generate digest without scheduling
 app.post('/api/test-digest', async (req, res) => {
   try {
@@ -406,7 +447,15 @@ app.post('/api/test-digest', async (req, res) => {
 app.post('/api/send-digest/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const result = await sendManualDigest(userId);
+    const { topic, topics, customPrompt } = req.body || {};
+    
+    // Build overrides from request body 
+    const overrides = {};
+    if (topic) overrides.topic = topic;
+    else if (topics && topics.length > 0) overrides.topic = topics.join(', ');
+    if (customPrompt !== undefined) overrides.customPrompt = customPrompt;
+    
+    const result = await sendManualDigest(userId, overrides);
     
     res.json(result);
   } catch (error) {

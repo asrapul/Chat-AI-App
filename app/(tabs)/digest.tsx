@@ -1,331 +1,379 @@
 import { API_CONFIG } from '@/constants/Config';
 import { useTheme } from '@/context/ThemeContext';
-import { registerForPushNotificationsAsync } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
+    Animated,
     Platform,
+    RefreshControl,
     ScrollView,
     StyleSheet,
-    Switch,
     Text,
-    TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 
-const TOPICS = [
-  { label: 'Teknologi', value: 'Teknologi', icon: 'laptop-outline' },
-  { label: 'Bisnis', value: 'Bisnis', icon: 'briefcase-outline' },
-  { label: 'Olahraga', value: 'Olahraga', icon: 'football-outline' },
-  { label: 'Hiburan', value: 'Hiburan', icon: 'film-outline' },
-  { label: 'Kesehatan', value: 'Kesehatan', icon: 'fitness-outline' },
-  { label: 'Internasional', value: 'Internasional', icon: 'globe-outline' },
-];
+interface Digest {
+  id: string;
+  topic: string;
+  content: string;
+  generatedAt: string;
+  deliveredAt?: string;
+}
 
-export default function DigestSettings() {
+export default function DigestHistoryScreen() {
   const { colors } = useTheme();
-  const [time, setTime] = useState(new Date());
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [topic, setTopic] = useState('Teknologi');
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [enabled, setEnabled] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [digests, setDigests] = useState<Digest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Notification state
+  const [newDigest, setNewDigest] = useState<Digest | null>(null);
+  const notifAnim = useRef(new Animated.Value(-100)).current;
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+    }, [])
+  );
+
+  const loadHistory = async () => {
+    try {
+      let userId = await AsyncStorage.getItem('userId');
+      if (!userId) {
+        userId = `user-${Date.now()}`;
+        await AsyncStorage.setItem('userId', userId);
+      }
+      
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/digest/history/${userId}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        const fetchedDigests: Digest[] = result.digests || [];
+        
+        // Detect new digests
+        if (knownIdsRef.current.size > 0) {
+          for (const d of fetchedDigests) {
+            if (!knownIdsRef.current.has(d.id)) {
+              showNotification(d);
+              break; // Show one notification at a time
+            }
+          }
+        }
+        
+        // Update known IDs
+        knownIdsRef.current = new Set(fetchedDigests.map(d => d.id));
+        setDigests(fetchedDigests);
+      }
+    } catch (error) {
+      console.error('Failed to load history:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const showNotification = (digest: Digest) => {
+    setNewDigest(digest);
+    // Slide in
+    Animated.spring(notifAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 80,
+      friction: 10,
+    }).start();
+    // Auto-hide after 8 seconds
+    if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
+    notifTimerRef.current = setTimeout(() => hideNotification(), 8000);
+  };
+
+  const hideNotification = () => {
+    Animated.timing(notifAnim, {
+      toValue: -100,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => setNewDigest(null));
+  };
+
+  const handleNotifPress = () => {
+    if (newDigest) {
+      hideNotification();
+      router.push(`/digest/${newDigest.id}` as any);
+    }
+  };
+
+  // Poll for new digests every 30 seconds
   useEffect(() => {
-    loadSettings();
+    const interval = setInterval(() => {
+      loadHistory();
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
-  const loadSettings = async () => {
-    try {
-      const savedSettings = await AsyncStorage.getItem('digest_settings');
-      if (savedSettings) {
-        const settings = JSON.parse(savedSettings);
-        if (settings.time) {
-          const [hours, minutes] = settings.time.split(':');
-          const date = new Date();
-          date.setHours(parseInt(hours), parseInt(minutes), 0);
-          setTime(date);
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadHistory();
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const handleTrashPress = () => {
+    if (Platform.OS === 'web') {
+      // Web: use a simple prompt-based flow
+      const choice = window.confirm('Pilih OK untuk masuk mode "Pilih & Hapus".\nPilih Cancel lalu tekan tombol sampah lagi untuk "Hapus Semua".');
+      if (choice) {
+        setSelectMode(true);
+        setSelectedIds(new Set());
+      } else {
+        // Ask for clear all
+        const clearAll = window.confirm('Hapus SEMUA digest?');
+        if (clearAll) {
+          (async () => {
+            try {
+              const userId = await AsyncStorage.getItem('userId');
+              await fetch(`${API_CONFIG.BASE_URL}/api/digest/history/${userId}`, { method: 'DELETE' });
+              setDigests([]);
+            } catch (e) { console.error(e); }
+          })();
         }
-        setTopic(settings.topic || 'Teknologi');
-        setCustomPrompt(settings.customPrompt || '');
-        setEnabled(settings.enabled || false);
       }
-    } catch (error) {
-      console.error('Failed to load settings:', error);
+    } else {
+      // Native: Alert with options
+      const Alert = require('react-native').Alert;
+      Alert.alert(
+        'Hapus Digest',
+        'Pilih cara menghapus:',
+        [
+          { text: 'Batal', style: 'cancel' },
+          {
+            text: 'Pilih & Hapus',
+            onPress: () => {
+              setSelectMode(true);
+              setSelectedIds(new Set());
+            }
+          },
+          { 
+            text: 'Hapus Semua', 
+            style: 'destructive',
+            onPress: () => {
+              Alert.alert(
+                'Konfirmasi',
+                'Yakin ingin menghapus semua digest?',
+                [
+                  { text: 'Batal', style: 'cancel' },
+                  {
+                    text: 'Hapus Semua',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        const userId = await AsyncStorage.getItem('userId');
+                        await fetch(`${API_CONFIG.BASE_URL}/api/digest/history/${userId}`, { method: 'DELETE' });
+                        setDigests([]);
+                      } catch (e) { console.error(e); }
+                    }
+                  }
+                ]
+              );
+            }
+          }
+        ]
+      );
     }
   };
 
-  const handleSaveSettings = async () => {
-    try {
-      setSaving(true);
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
-      // Get user ID
-      const userId = await AsyncStorage.getItem('userId');
-      const actualUserId = userId || `user-${Date.now()}`;
-      if (!userId) {
-        await AsyncStorage.setItem('userId', actualUserId);
-      }
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    
+    const doDelete = async () => {
+      try {
+        for (const id of selectedIds) {
+          await fetch(`${API_CONFIG.BASE_URL}/api/digest/${id}`, { method: 'DELETE' });
+        }
+        setSelectMode(false);
+        setSelectedIds(new Set());
+        loadHistory();
+      } catch (e) { console.error(e); }
+    };
 
-      // Get push token
-      const pushToken = await registerForPushNotificationsAsync();
-      
-      if (!pushToken && enabled) {
-        Alert.alert(
-          'Push Notification Required',
-          'Push notifications are required to receive daily digests. Please enable notifications in your device settings.'
-        );
-        setSaving(false);
-        return;
-      }
-
-      // Convert local time to UTC hour
-      const localHour = time.getHours();
-      const now = new Date();
-      now.setHours(localHour, 0, 0, 0);
-      const utcHour = now.getUTCHours();
-
-      // Save to backend
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/digest/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: actualUserId,
-          digestTimeUTC: utcHour,
-          topic,
-          customPrompt: customPrompt.trim() || null,
-          digestEnabled: enabled,
-          pushToken,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Save locally
-        await AsyncStorage.setItem('digest_settings', JSON.stringify({
-          time: `${time.getHours()}:${time.getMinutes().toString().padStart(2, '0')}`,
-          topic,
-          customPrompt,
-          enabled,
-        }));
-
-        Alert.alert('Success', 'Digest settings saved successfully!');
-      } else {
-        throw new Error(result.error || 'Failed to save settings');
-      }
-    } catch (error) {
-      console.error('Save error:', error);
-      Alert.alert('Error', 'Failed to save settings. Please try again.');
-    } finally {
-      setSaving(false);
+    if (Platform.OS === 'web') {
+      const ok = window.confirm(`Hapus ${selectedIds.size} digest yang dipilih?`);
+      if (ok) doDelete();
+    } else {
+      const Alert = require('react-native').Alert;
+      Alert.alert(
+        'Hapus Digest',
+        `Hapus ${selectedIds.size} digest yang dipilih?`,
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Hapus', style: 'destructive', onPress: doDelete }
+        ]
+      );
     }
   };
 
-  const onTimeChange = (event: any, selectedDate?: Date) => {
-    setShowTimePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      setTime(selectedDate);
-    }
-  };
-
-  const handleGenerateNow = async () => {
-    try {
-      setSaving(true);
-      const userId = await AsyncStorage.getItem('userId');
-      const actualUserId = userId || `user-${Date.now()}`;
-      
-      if (!userId) {
-        await AsyncStorage.setItem('userId', actualUserId);
-      }
-
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/send-digest/${actualUserId}`, {
-        method: 'POST',
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        Alert.alert(
-          'Success!', 
-          'Digest generated and sent successfully! Check history to view it.',
-          [
-            { text: 'View History', onPress: () => router.push('/digest/history' as any) },
-            { text: 'OK' }
-          ]
-        );
-      } else {
-        throw new Error(result.error || 'Failed to generate digest');
-      }
-    } catch (error) {
-      console.error('Generate error:', error);
-      Alert.alert('Error', 'Failed to generate digest. Please check your settings and try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (loading && !refreshing && digests.length === 0) {
+    return (
+      <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>Daily Digest</Text>
-          <TouchableOpacity
-            style={[styles.historyButton, { backgroundColor: colors.primary + '20' }]}
-            onPress={() => router.push('/digest/history' as any)}
-          >
-            <Text style={[styles.historyButtonText, { color: colors.primary }]}>
-              History
-            </Text>
-          </TouchableOpacity>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: colors.text }]}>Digest History</Text>
+        
+        <View style={styles.headerButtons}>
+            {selectMode ? (
+              <>
+                <TouchableOpacity onPress={() => { setSelectMode(false); setSelectedIds(new Set()); }} style={styles.iconButton}>
+                  <Text style={{ color: colors.textSecondary, fontWeight: '600' }}>Batal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDeleteSelected}
+                  style={[styles.deleteSelectedBtn, { backgroundColor: selectedIds.size > 0 ? '#FF6B6B' : colors.border }]}
+                >
+                  <Ionicons name="trash" size={18} color="#FFF" />
+                  <Text style={styles.deleteSelectedText}>Hapus ({selectedIds.size})</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                {digests.length > 0 && (
+                  <TouchableOpacity onPress={handleTrashPress} style={styles.iconButton}>
+                    <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity 
+                  onPress={() => router.push('/digest/settings')} 
+                  style={[styles.settingsButton, { backgroundColor: colors.cardBackground }]}
+                >
+                  <Ionicons name="settings-outline" size={24} color={colors.primary} />
+                </TouchableOpacity>
+              </>
+            )}
         </View>
+      </View>
 
-        {/* Enable/Disable Toggle */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.row}>
-            <View style={styles.labelContainer}>
-              <Text style={[styles.label, { color: colors.text }]}>Enable Daily Digest</Text>
-              <Text style={[styles.hint, { color: colors.textSecondary }]}>
-                Receive daily news digest at your preferred time
+      {/* New Digest Notification Banner */}
+      {newDigest && (
+        <Animated.View style={[styles.notifBanner, { transform: [{ translateY: notifAnim }] }]}>
+          <TouchableOpacity style={styles.notifContent} onPress={handleNotifPress} activeOpacity={0.85}>
+            <View style={styles.notifIcon}>
+              <Ionicons name="newspaper" size={20} color="#FFF" />
+            </View>
+            <View style={styles.notifTextWrap}>
+              <Text style={styles.notifTitle}>📰 Berita Baru!</Text>
+              <Text style={styles.notifBody} numberOfLines={1}>
+                Digest "{newDigest.topic}" telah ditambahkan. Tap untuk membaca.
               </Text>
             </View>
-            <Switch
-              value={enabled}
-              onValueChange={setEnabled}
-              trackColor={{ false: colors.border, true: colors.primary + '50' }}
-              thumbColor={enabled ? colors.primary : colors.textSecondary}
-            />
-          </View>
-        </View>
-
-        {/* Generate Now Button */}
-        <TouchableOpacity
-          style={[styles.generateNowButton, { 
-            backgroundColor: colors.primary + '15',
-            borderColor: colors.primary,
-            opacity: saving ? 0.7 : 1,
-          }]}
-          onPress={handleGenerateNow}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : null}
-          <Text style={[styles.generateNowText, { color: colors.primary }]}>
-            {saving ? 'Generating...' : 'Generate Digest Now'}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Time Picker */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Delivery Time</Text>
-          <TouchableOpacity
-            style={[styles.timeButton, { backgroundColor: colors.background }]}
-            onPress={() => setShowTimePicker(true)}
-          >
-            <Text style={[styles.timeText, { color: colors.primary }]}>
-              {time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
+            <TouchableOpacity onPress={hideNotification} style={styles.notifClose}>
+              <Ionicons name="close" size={18} color="#FFF" />
+            </TouchableOpacity>
           </TouchableOpacity>
-          <Text style={[styles.hint, { color: colors.textSecondary }]}>
-            You'll receive your digest at this time every day
-          </Text>
-          
-          {showTimePicker && (
-            <DateTimePicker
-              value={time}
-              mode="time"
-              is24Hour={false}
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={onTimeChange}
-            />
-          )}
-        </View>
+        </Animated.View>
+      )}
 
-        {/* Topic Selection */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Topic</Text>
-          <View style={styles.topicGrid}>
-            {TOPICS.map((t) => (
-              <TouchableOpacity
-                key={t.value}
-                style={[
-                  styles.topicButton,
-                  { 
-                    backgroundColor: topic === t.value ? colors.primary : colors.background,
-                    borderColor: colors.border,
-                  }
-                ]}
-                onPress={() => setTopic(t.value)}
-              >
-                <View style={styles.topicContent}>
-                  <Ionicons 
-                    name={t.icon as any} 
-                    size={20} 
-                    color={topic === t.value ? '#FFFFFF' : colors.primary} 
-                  />
-                  <Text
-                    style={[
-                      styles.topicText,
-                      { color: topic === t.value ? '#FFFFFF' : colors.text }
-                    ]}
-                  >
-                    {t.label}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
+        }
+      >
+        {digests.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="newspaper-outline" size={64} color={colors.textSecondary} />
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              No digests yet
+            </Text>
+            <Text style={[styles.emptyHint, { color: colors.textSecondary }]}>
+              Enable daily digest in settings to start receiving news
+            </Text>
+            <TouchableOpacity 
+              style={[styles.ctaButton, { backgroundColor: colors.primary }]}
+              onPress={() => router.push('/digest/settings')}
+            >
+              <Text style={styles.ctaText}>Go to Settings</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Custom Prompt */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Custom Prompt (Optional)</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { 
-                backgroundColor: colors.background,
-                color: colors.text,
-                borderColor: colors.border,
-              }
-            ]}
-            placeholder="e.g., Focus on AI and machine learning news in Indonesia"
-            placeholderTextColor={colors.textSecondary}
-            value={customPrompt}
-            onChangeText={setCustomPrompt}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-          />
-          <Text style={[styles.hint, { color: colors.textSecondary }]}>
-            Customize how AI generates your digest
-          </Text>
-        </View>
-
-        {/* Save Button */}
-        <TouchableOpacity
-          style={[
-            styles.saveButton,
-            { backgroundColor: colors.primary },
-            saving && styles.saveButtonDisabled,
-          ]}
-          onPress={handleSaveSettings}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
-          ) : null}
-          <Text style={styles.saveButtonText}>
-            {saving ? 'Saving...' : 'Save Settings'}
-          </Text>
-        </TouchableOpacity>
+        ) : (
+          digests.map((digest) => (
+            <TouchableOpacity
+              key={digest.id}
+              style={[
+                styles.card, 
+                { backgroundColor: colors.cardBackground },
+                selectMode && selectedIds.has(digest.id) && { borderWidth: 2, borderColor: colors.primary }
+              ]}
+              onPress={() => {
+                if (selectMode) {
+                  toggleSelect(digest.id);
+                } else {
+                  router.push(`/digest/${digest.id}` as any);
+                }
+              }}
+            >
+              <View style={styles.cardHeader}>
+                <View style={styles.topicBadge}>
+                  <Ionicons name="newspaper-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.topic, { color: colors.primary }]}>{digest.topic}</Text>
+                </View>
+                {selectMode && (
+                  <Ionicons 
+                    name={selectedIds.has(digest.id) ? 'checkbox' : 'square-outline'} 
+                    size={22} 
+                    color={selectedIds.has(digest.id) ? colors.primary : colors.textSecondary} 
+                  />
+                )}
+              </View>
+              <Text style={[styles.date, { color: colors.textSecondary, marginBottom: 8 }]}>
+                  {formatDate(digest.deliveredAt || digest.generatedAt)}
+              </Text>
+              <Text
+                style={[styles.preview, { color: colors.text }]}
+                numberOfLines={3}
+              >
+                {digest.content}
+              </Text>
+              {!selectMode && (
+                <View style={styles.readMore}>
+                  <Text style={[styles.readMoreText, { color: colors.primary }]}>Read more</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                </View>
+              )}
+            </TouchableOpacity>
+          ))
+        )}
+        <View style={{ height: 100 }} />
       </ScrollView>
     </View>
   );
@@ -335,31 +383,75 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    flex: 1,
-    padding: 16,
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 8,
+    padding: 16,
+    paddingTop: 16,
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
   },
-  historyButton: {
+  headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
+    gap: 12,
   },
-  historyButtonText: {
+  iconButton: {
+    padding: 8,
+  },
+  settingsButton: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  deleteSelectedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  deleteSelectedText: {
+    color: '#FFF',
+    fontWeight: '700',
     fontSize: 14,
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptyHint: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    marginBottom: 24,
+  },
+  ctaButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  ctaText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
   card: {
@@ -372,100 +464,82 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  row: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  labelContainer: {
-    flex: 1,
-    marginRight: 16,
-  },
-  label: {
-    fontSize: 17,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
     marginBottom: 12,
   },
-  sectionHeader: {
+  topicBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  hint: {
-    fontSize: 13,
-    marginTop: 8,
-  },
-  timeButton: {
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  timeText: {
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  topicGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  topicButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    minWidth: '47%',
-  },
-  topicText: {
-    fontSize: 15,
-    fontWeight: '500',
- textAlign: 'center',
-  },
-  topicContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 15,
-    minHeight: 100,
-  },
-  generateNowButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 2,
-  },
-  generateNowText: {
-    fontSize: 16,
+  topic: {
+    fontSize: 14,
     fontWeight: '600',
   },
-  saveButton: {
-    padding: 18,
-    borderRadius: 16,
+  date: {
+    fontSize: 12,
+  },
+  preview: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  readMore: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 100,
+    gap: 4,
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
+  readMoreText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
+  notifBanner: {
+    position: 'absolute',
+    top: 70,
+    left: 12,
+    right: 12,
+    zIndex: 999,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  notifContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E88E5',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  notifIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notifTextWrap: {
+    flex: 1,
+  },
+  notifTitle: {
+    color: '#FFF',
     fontWeight: '700',
+    fontSize: 14,
+  },
+  notifBody: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  notifClose: {
+    padding: 4,
   },
 });

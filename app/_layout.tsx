@@ -2,14 +2,14 @@ import SplashScreen from '@/components/SplashScreen';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { getOnboardingCompleted } from '@/utils/storage';
 import {
-    Poppins_400Regular,
-    Poppins_500Medium,
-    Poppins_600SemiBold
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold
 } from '@expo-google-fonts/poppins';
 import {
-    Sora_400Regular,
-    Sora_600SemiBold,
-    Sora_700Bold
+  Sora_400Regular,
+  Sora_600SemiBold,
+  Sora_700Bold
 } from '@expo-google-fonts/sora';
 import * as Font from 'expo-font';
 import { Stack, router } from 'expo-router';
@@ -74,8 +74,9 @@ function RootLayoutContent() {
       const { addNotificationResponseReceivedListener } = await import('@/utils/notifications');
       addNotificationResponseReceivedListener((response) => {
         const data = response.notification.request.content.data;
-        if (data.type === 'digest' && data.digestId) {
-          router.push(`/digest/${data.digestId}`);
+        if (data.type === 'digest') {
+          // Redirect to digest list page as requested
+          router.replace('/(tabs)/digest');
         }
       });
     } catch (e) {
@@ -127,6 +128,12 @@ function RootLayoutContent() {
         />
         <Stack.Screen 
           name="digest/[id]" 
+          options={{ 
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="digest/settings" 
           options={{ 
             headerShown: false,
           }} 

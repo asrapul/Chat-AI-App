@@ -11,13 +11,19 @@
   },
   {
     "userId": "test-user-1",
-    "digestTimeUTC": 5,
-    "topic": "Bisnis",
-    "customPrompt": "internasional bussiness",
-    "digestEnabled": false,
+    "digestTimeUTC": 2,
+    "topic": "Kesehatan, Internasional, Hiburan, Olahraga",
+    "customPrompt": "berita indonesia",
+    "digestEnabled": true,
     "pushToken": null,
     "createdAt": "2026-02-07T05:11:30.416Z",
-    "updatedAt": "2026-02-09T00:14:01.925Z"
+    "updatedAt": "2026-02-10T10:13:40.106Z",
+    "topics": [
+      "Kesehatan",
+      "Internasional",
+      "Hiburan",
+      "Olahraga"
+    ]
   },
   {
     "userId": "test-web-user",
@@ -27,5 +33,19 @@
     "digestEnabled": true,
     "pushToken": null,
     "createdAt": "2026-02-09T00:12:01.045Z"
+  },
+  {
+    "userId": "user-test123",
+    "topic": "Teknologi, Bisnis",
+    "customPrompt": null,
+    "digestEnabled": true,
+    "digestTimeUTC": 9,
+    "createdAt": "2026-02-10T09:18:07.213Z",
+    "topics": [
+      "Teknologi",
+      "Bisnis"
+    ],
+    "pushToken": null,
+    "updatedAt": "2026-02-10T09:52:05.040Z"
   }
 ]
