@@ -11,8 +11,9 @@ import { UserProfile } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -93,20 +94,41 @@ export default function ProfileScreen() {
 
   const handleLogout = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await signOut();
+    
+    const performSignOut = async () => {
+      try {
+        console.log('🔄 Logout: Initiating signOut...');
+        await signOut();
+        // Fallback for Web if the RootLayout doesn't redirect fast enough
+        if (Platform.OS === 'web') {
+          console.log('🌐 Web Logout: Manual redirection fallback');
+          router.replace('/auth/login');
+        }
+      } catch (error) {
+        console.error('❌ Logout Error:', error);
+        Alert.alert('Error', 'Failed to logout. Please try again.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      // Standard Alert.alert with buttons can be flaky on some web environments
+      if (confirm('Are you sure you want to logout?')) {
+        performSignOut();
+      }
+    } else {
+      Alert.alert(
+        'Logout',
+        'Are you sure you want to logout?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Logout',
+            style: 'destructive',
+            onPress: performSignOut,
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const copyToClipboard = async () => {

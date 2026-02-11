@@ -50,7 +50,6 @@ function RootLayoutContent() {
     if (authLoading || !isReady || !fontsLoaded) return;
 
     if (!session) {
-      // Not logged in → show auth screen
       router.replace('/auth/login');
     }
   }, [session, authLoading, isReady, fontsLoaded]);

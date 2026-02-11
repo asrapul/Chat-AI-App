@@ -18,5 +18,15 @@
     "customPrompt": "berita indonesia",
     "userId": "test-user-1",
     "deliveredAt": "2026-02-10T10:13:55.202Z"
+  },
+  {
+    "id": "digest-1770800413308",
+    "topic": "Teknologi, Bisnis",
+    "content": "Tentu, berikut adalah ringkasan berita terbaru tentang Teknologi dan Bisnis dengan insight tren yang terlihat:\n\n---\n\n**Ringkasan Berita Teknologi & Bisnis Terbaru**\n\n🔹 **OpenAI Luncurkan GPT-4o dan Sora, Tingkatkan Interaksi AI Multimodal** - OpenAI merilis model AI GPT-4o yang lebih cepat, gratis, dan mampu berinteraksi melalui teks, suara, dan video secara alami, sementara Sora terus dikembangkan untuk menghasilkan video realistis dari teks, menandai lompatan besar dalam kemampuan AI.\n\n🔹 **Integrasi TikTok Shop dan Tokopedia Resmi Beroperasi Penuh** - Proses integrasi operasional TikTok Shop dengan Tokopedia di bawah PT GoTo Gojek Tokopedia Tbk telah rampung, menandai babak baru persaingan e-commerce di Indonesia dengan sinergi antara platform media sosial dan marketplace tradisional.\n\n🔹 **Apple Siap Umumkan Strategi AI Generatif di WWDC** - Apple diperkirakan akan unveiling serangkaian fitur AI generatif baru yang ambisius di konferensi pengembang WWDC, berpotensi mengintegrasikan AI secara mendalam ke dalam ekosistem produknya mulai dari Siri hingga aplikasi lainnya.\n\n🔹 **Keuntungan Nvidia Melonjak Drastis Didorong Permintaan Chip AI** - Nvidia melaporkan lonjakan pendapatan dan laba yang signifikan, jauh melampaui ekspektasi, berkat permintaan masif akan chip GPU (Graphics Processing Unit) yang menjadi tulang punggung pengembangan dan operasional AI.\n\n---\n\n**Insight Tren yang Terlihat:**\n\nTren utama yang sangat jelas terlihat dari berita-berita ini adalah **dominasi dan percepatan pengembangan kecerdasan buatan (AI)** di berbagai sektor. Mulai dari model AI multimodal yang semakin canggih (GPT-4o, Sora) hingga integrasi AI ke dalam ekosistem produk konsumen sehari-hari (ekspektasi Apple), serta permintaan masif akan infrastruktur chip AI (Nvidia), menunjukkan AI bukan lagi tren masa depan melainkan kekuatan pendorong utama inovasi dan pertumbuhan bisnis saat ini. Selain itu, **konsolidasi dan persaingan ketat di pasar digital lokal** (GoTo-TikTok Shop) juga menjadi sorotan, menandakan adaptasi strategi bisnis untuk menguasai pangsa pasar yang terus berubah di era digital.",
+    "sources": [],
+    "generatedAt": "2026-02-11T09:00:13.308Z",
+    "customPrompt": null,
+    "userId": "user-test123",
+    "deliveredAt": "2026-02-11T09:00:13.309Z"
   }
 ]
