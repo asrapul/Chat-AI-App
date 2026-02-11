@@ -14,9 +14,10 @@ import Animated, {
 
 interface MessageInputProps {
   onSend: (message: string, imageUri?: string) => void;
+  onTypingStart?: () => void;
 }
 
-export default function MessageInput({ onSend }: MessageInputProps) {
+export default function MessageInput({ onSend, onTypingStart }: MessageInputProps) {
   const { colors, isDark } = useTheme();
   const [message, setMessage] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -91,7 +92,10 @@ export default function MessageInput({ onSend }: MessageInputProps) {
           placeholder="Type futuristic message..."
           placeholderTextColor={colors.textSecondary}
           value={message}
-          onChangeText={setMessage}
+          onChangeText={(text) => {
+            setMessage(text);
+            if (text.length > 0 && onTypingStart) onTypingStart();
+          }}
           onKeyPress={handleKeyPress}
           multiline
           maxLength={1000}

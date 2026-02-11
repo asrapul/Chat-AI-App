@@ -1,8 +1,10 @@
 import ConversationItem from '@/components/ConversationItem';
 import { SPRING_CONFIG } from '@/constants/Animations';
 import { Typography } from '@/constants/Typography';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { bulkTogglePinConversations, deleteConversation, deleteMultipleConversations, syncAndRepairConversations, togglePinConversation } from '@/utils/storage';
+import { RoomWithPreview, supabaseService } from '@/services/supabaseService';
+import { getSavedConversations } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
@@ -16,8 +18,22 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+// Convert RoomWithPreview to conversation-like format for existing ConversationItem
+const roomToConversation = (room: RoomWithPreview) => ({
+  id: room.id,
+  title: room.name,
+  lastMessage: room.last_message || 'No messages yet',
+  timestamp: room.last_message_at || room.created_at,
+  avatar: room.topic === 'image-gen' ? 'ImageIcon' : (room.type === 'group' ? 'people' : 'chatbubbles'),
+  unread: 0,
+  isPinned: false,
+  topic: room.topic as any,
+  type: 'supabase' as const,
+});
+
 export default function ConversationListScreen() {
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [conversations, setConversations] = useState<any[]>([]);
   const [filteredSections, setFilteredSections] = useState<any[]>([]);
@@ -34,11 +50,10 @@ export default function ConversationListScreen() {
     React.useCallback(() => {
       console.log('🔄 Home Screen Focused - Reloading Data');
       loadData();
-    }, [])
+    }, [user])
   );
 
   useEffect(() => {
-    // Initial load
     loadData();
     // Header entrance animation
     headerTranslateY.value = withDelay(100, withSpring(0, SPRING_CONFIG.SMOOTH));
@@ -50,16 +65,32 @@ export default function ConversationListScreen() {
   }, [conversations, searchQuery]);
 
   const loadData = async () => {
-    // Smart Load: Checks mismatch and repairs if needed
+    if (!user) return;
     setIsLoading(true);
-    const saved = await syncAndRepairConversations();
     
-    if (saved && saved.length > 0) {
-      setConversations(saved);
-    } else {
-      setConversations([]);
+    try {
+      // 1. Fetch Supabase Rooms
+      const rooms = await supabaseService.getRooms(user.id);
+      const remoteConvos = rooms.map(roomToConversation);
+      
+      // 2. Fetch Local AI Conversations
+      const localConvos = await getSavedConversations() || [];
+      
+      // 3. Merge and Sort
+      const allConvos = [...remoteConvos, ...localConvos].sort((a, b) => {
+        // Pinned first (local only for now)
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        // Then by timestamp
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
+
+      setConversations(allConvos);
+    } catch (e) {
+      console.error('Error loading conversations:', e);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
     }
-    setIsLoading(false);
   };
 
   const groupAndFilterConversations = () => {
@@ -68,27 +99,22 @@ export default function ConversationListScreen() {
       c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const pinned = filtered.filter(c => c.isPinned);
-    const unpinned = filtered.filter(c => !c.isPinned);
-
     const now = new Date();
-    const today = unpinned.filter(c => isSameDay(new Date(c.timestamp), now));
-    const yesterday = unpinned.filter(c => {
+    const today = filtered.filter(c => isSameDay(new Date(c.timestamp), now));
+    const yesterday = filtered.filter(c => {
       const d = new Date(c.timestamp);
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
       return isSameDay(d, y);
     });
-    const earlier = unpinned.filter(c => {
+    const earlier = filtered.filter(c => {
       const d = new Date(c.timestamp);
       const y = new Date(now);
-      y.setDate(y.getDate() - 1);
-      y.setDate(y.getDate() - 1);
-      return d < y && !isSameDay(d, y);
+      y.setDate(y.getDate() - 2);
+      return d < y;
     });
 
     const sections = [];
-    if (pinned.length > 0) sections.push({ title: 'Pinned', data: pinned });
     if (today.length > 0) sections.push({ title: 'Today', data: today });
     if (yesterday.length > 0) sections.push({ title: 'Yesterday', data: yesterday });
     if (earlier.length > 0) sections.push({ title: 'Earlier', data: earlier });
@@ -125,7 +151,18 @@ export default function ConversationListScreen() {
     if (isSelectionMode) {
       toggleSelection(id);
     } else {
-      router.push(`/chat/${id}`);
+      // Find the room/convo
+      const convo = conversations.find(c => c.id === id);
+      const type = convo?.type || 'local';
+      
+      router.push({
+        pathname: '/chat/[id]',
+        params: {
+          id,
+          type,
+          topicName: convo?.title || 'Monox AI',
+        }
+      });
     }
   };
 
@@ -153,7 +190,7 @@ export default function ConversationListScreen() {
     
     const count = selectedIds.size;
     const performDelete = async () => {
-      await deleteMultipleConversations(Array.from(selectedIds));
+      await supabaseService.deleteMultipleRooms(Array.from(selectedIds));
       setSelectedIds(new Set());
       setIsSelectionMode(false);
       await loadData();
@@ -175,18 +212,9 @@ export default function ConversationListScreen() {
     }
   };
 
-  const handleBulkPin = async () => {
-    if (selectedIds.size === 0) return;
-    
-    await bulkTogglePinConversations(Array.from(selectedIds));
-    setSelectedIds(new Set());
-    setIsSelectionMode(false);
-    loadData();
-  };
-
   const confirmIndividualDelete = (conversation: any) => {
     const performDelete = async () => {
-      await deleteConversation(conversation.id);
+      await supabaseService.deleteRoom(conversation.id);
       await loadData();
     };
 
@@ -212,13 +240,6 @@ export default function ConversationListScreen() {
       conversation.title,
       'Choose an action',
       [
-        {
-          text: conversation.isPinned ? 'Unpin Conversation' : 'Pin Conversation',
-          onPress: async () => {
-            await togglePinConversation(conversation.id);
-            await loadData();
-          },
-        },
         {
           text: 'Delete Conversation',
           style: 'destructive',
@@ -321,11 +342,6 @@ export default function ConversationListScreen() {
           <View style={styles.selectionCountContainer}>
             <Text style={[styles.selectionCount, { color: colors.text }]}>{selectedIds.size} Selected</Text>
           </View>
-          
-          <TouchableOpacity onPress={handleBulkPin} disabled={selectedIds.size === 0} style={styles.bulkActionItem}>
-            <Ionicons name="pin-outline" size={24} color={selectedIds.size > 0 ? colors.primary : colors.textSecondary} />
-            <Text style={[styles.bulkActionText, { color: selectedIds.size > 0 ? colors.primary : colors.textSecondary }]}>Pin/Unpin</Text>
-          </TouchableOpacity>
         </Animated.View>
       )}
     </SafeAreaView>
@@ -472,14 +488,5 @@ const styles = StyleSheet.create({
   selectionCount: {
     ...Typography.bodySemiBold,
     fontSize: 14,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    ...Typography.body,
-    marginTop: 12,
   },
 });

@@ -234,11 +234,34 @@ export const getChatMessages = async (conversationId: string): Promise<Message[]
 export const getSavedConversations = async (): Promise<Conversation[] | null> => {
   try {
     const value = await AsyncStorage.getItem(KEY_PREFIXES.CONVERSATIONS);
-    return value ? JSON.parse(value) : null;
+    if (!value) return null;
+    
+    // Ensure legacy data has type: 'local'
+    const parsed: Conversation[] = JSON.parse(value);
+    return parsed.map(c => ({ ...c, type: c.type || 'local' }));
   } catch (error) {
     console.error('Error loading conversations:', error);
     return null;
   }
+};
+
+export const createLocalConversation = async (title: string, topic: string): Promise<string> => {
+  const id = Date.now().toString(); // Simple ID for local
+  const newConvo: Conversation = {
+    id,
+    title,
+    lastMessage: 'Start a conversation...',
+    timestamp: new Date().toISOString(),
+    avatar: topic === 'image-gen' ? 'ImageIcon' : 'ChatIcon',
+    unread: 0,
+    isPinned: false,
+    topic: topic as any,
+    type: 'local'
+  };
+  
+  const saved = await getSavedConversations() || [];
+  await saveConversations([newConvo, ...saved]);
+  return id;
 };
 
 export const saveConversations = async (conversations: Conversation[]): Promise<void> => {
@@ -415,6 +438,7 @@ export const rebuildConversationIndex = async (): Promise<Conversation[]> => {
           avatar: meta?.topic === 'image-gen' ? 'ImageIcon' : 'chatbubbles', // Simple inference or default
           isPinned: meta?.isPinned || false,
           topic: meta?.topic,
+          type: 'local',
         });
       } catch (err) {
         console.warn('Skipping corrupted chat file:', key);

@@ -1,14 +1,55 @@
 import { Typography } from '@/constants/Typography';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { Profile, supabaseService } from '@/services/supabaseService';
+import { createLocalConversation } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useState } from 'react';
+import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 export default function NewChatScreen() {
   const { colors } = useTheme();
+  const { user } = useAuth();
+  const params = useLocalSearchParams();
+  const isGroupMode = params.initialTab === 'group';
+  
+  const [isCreatingGroup, setIsCreatingGroup] = useState(isGroupMode);
+  const [groupName, setGroupName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [friends, setFriends] = useState<Profile[]>([]);
+  const [selectedFriends, setSelectedFriends] = useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (user && isCreatingGroup) {
+      loadFriends();
+    }
+  }, [user, isCreatingGroup]);
+
+  // Handle specific mode cleanup/setup if needed
+  React.useEffect(() => {
+    if (isGroupMode) {
+        setIsCreatingGroup(true);
+    }
+  }, [isGroupMode]);
+
+  const loadFriends = async () => {
+    if (!user) return;
+    const myFriends = await supabaseService.getFriends(user.id);
+    setFriends(myFriends);
+  };
+
+  const toggleFriend = (id: string) => {
+    const newSet = new Set(selectedFriends);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedFriends(newSet);
+  };
 
   const aiTopics = [
     {
@@ -61,12 +102,36 @@ export default function NewChatScreen() {
     }
   ];
 
-  const handleSelectTopic = (topicId: string) => {
-    const newSessionId = `${topicId}-${Date.now()}`;
+  const handleSelectTopic = async (topicId: string) => {
     const topic = aiTopics.find(t => t.id === topicId);
+    const title = topic?.name || 'New Chat';
+
+    // Create LOCAL AI conversation
+    const id = await createLocalConversation(title, topicId);
     
-    // Pass topic name and icon for conversation title
-    router.replace(`/chat/${newSessionId}?model=monox-ai&topic=${topicId}&topicName=${encodeURIComponent(topic?.name || 'Chat')}&topicIcon=${topic?.icon || 'ChatIcon'}`);
+    // Navigate with type='local'
+    router.replace(`/chat/${id}?type=local&model=monox-ai&topic=${topicId}&topicName=${encodeURIComponent(title)}&topicIcon=${topic?.icon || 'ChatIcon'}`);
+  };
+
+  const handleCreateGroup = async () => {
+    if (!user || !groupName.trim()) return;
+    setLoading(true);
+
+    const room = await supabaseService.createRoom(
+      groupName.trim(),
+      user.id,
+      'general',
+      'group', // User created room -> type: group
+      Array.from(selectedFriends) // Add selected friends
+    );
+
+    if (room) {
+      // Navigate with type='supabase' and topic (critical for isAI logic)
+      router.replace(`/chat/${room.id}?type=supabase&topic=${room.topic}&topicName=${encodeURIComponent(room.name)}`);
+    } else {
+      console.error('Failed to create room');
+    }
+    setLoading(false);
   };
 
   const renderIcon = (iconName: string, color: string) => {
@@ -117,48 +182,164 @@ export default function NewChatScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.navigate('/(tabs)')} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={[styles.brandName, { color: colors.primary }]}>Monox AI</Text>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Choose Your Tool</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            {isCreatingGroup ? 'New Group' : 'Choose Your Tool'}
+          </Text>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-          What would you like to create today?
-        </Text>
-
-        <View style={styles.grid}>
-          {aiTopics.map((topic) => (
-            <TouchableOpacity
-              key={topic.id}
-              style={[styles.topicCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
-              onPress={() => handleSelectTopic(topic.id)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.iconContainer, { backgroundColor: topic.color + '15' }]}>
-                {renderIcon(topic.icon, topic.color)}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        style={{ flex: 1 }}
+      >
+        <ScrollView contentContainerStyle={styles.content}>
+          {isCreatingGroup ? (
+            <View>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Create New Group</Text>
+              
+              <View style={[styles.inputContainer, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  placeholder="Enter group name..."
+                  placeholderTextColor={colors.textLight}
+                  value={groupName}
+                  onChangeText={setGroupName}
+                  autoFocus
+                />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.topicName, { color: colors.text }]}>{topic.name}</Text>
-                <Text style={[styles.topicDesc, { color: colors.textSecondary }]} numberOfLines={2}>
-                  {topic.description}
+
+              
+              {/* Friend Selection UI */}
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Add Friends (Optional)</Text>
+              {friends.length === 0 ? (
+                  <Text style={{ color: colors.textSecondary, marginBottom: 20 }}>
+                     No friends found. Add friends from the Social tab first.
+                  </Text>
+              ) : (
+                  <View style={{ marginBottom: 20 }}>
+                    <FlatList
+                        data={friends}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyExtractor={item => item.id}
+                        contentContainerStyle={{ paddingRight: 20 }}
+                        renderItem={({ item }) => {
+                            const isSelected = selectedFriends.has(item.id);
+                            return (
+                                <TouchableOpacity 
+                                    style={[
+                                        styles.friendChip, 
+                                        { 
+                                            backgroundColor: isSelected ? colors.primary : colors.cardBackground,
+                                            borderColor: isSelected ? colors.primary : colors.border
+                                        }
+                                    ]}
+                                    onPress={() => toggleFriend(item.id)}
+                                >
+                                    {item.avatar_url ? (
+                                        <Image source={{ uri: item.avatar_url }} style={styles.friendAvatar} />
+                                    ) : (
+                                        <View style={[styles.friendAvatar, { backgroundColor: '#ccc' }]} />
+                                    )}
+                                    <Text style={[
+                                        styles.friendName, 
+                                        { color: isSelected ? '#fff' : colors.text }
+                                    ]}>{item.username || 'User'}</Text>
+                                    {isSelected && (
+                                        <View style={styles.checkmark}>
+                                            <Ionicons name="checkmark" size={12} color="#fff" />
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        }}
+                    />
+                  </View>
+              )}
+
+              <View style={styles.actionButtons}>
+                <TouchableOpacity 
+                  style={[styles.cancelButton, { borderColor: colors.border }]} 
+                  onPress={() => {
+                      if (isGroupMode) {
+                          router.back();
+                      } else {
+                          setIsCreatingGroup(false);
+                      }
+                  }}
+                >
+                  <Text style={[styles.buttonText, { color: colors.text }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.createButton, { backgroundColor: colors.primary, opacity: !groupName.trim() || loading ? 0.7 : 1 }]} 
+                  onPress={handleCreateGroup}
+                  disabled={!groupName.trim() || loading}
+                >
+                  {loading ? <ActivityIndicator color="#FFF" /> : <Text style={[styles.buttonText, { color: '#FFF' }]}>Create Group</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+                What would you like to create today?
+              </Text>
+
+              <View style={styles.grid}>
+                {/* New Group Chat Option */}
+                <TouchableOpacity
+                  style={[styles.topicCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
+                  onPress={() => setIsCreatingGroup(true)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: colors.primary + '15' }]}>
+                    <Ionicons name="people" size={28} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.topicName, { color: colors.text }]}>New Group Chat</Text>
+                    <Text style={[styles.topicDesc, { color: colors.textSecondary }]} numberOfLines={2}>
+                      Create a room and invite others to chat
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                {aiTopics.map((topic) => (
+                  <TouchableOpacity
+                    key={topic.id}
+                    style={[styles.topicCard, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}
+                    onPress={() => handleSelectTopic(topic.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.iconContainer, { backgroundColor: topic.color + '15' }]}>
+                      {renderIcon(topic.icon, topic.color)}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.topicName, { color: colors.text }]}>{topic.name}</Text>
+                      <Text style={[styles.topicDesc, { color: colors.textSecondary }]} numberOfLines={2}>
+                        {topic.description}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.footer}>
+                <Text style={[styles.footerText, { color: colors.textLight }]}>
+                  Powered by Monox AI • All tools in one place
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={[styles.footerText, { color: colors.textLight }]}>
-            Powered by Monox AI • All tools in one place
-          </Text>
-        </View>
-      </ScrollView>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -242,5 +423,66 @@ const styles = StyleSheet.create({
   footerText: {
     ...Typography.caption,
     fontSize: 12,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 52,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  input: {
+    flex: 1,
+    ...Typography.body,
+    fontSize: 16,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  createButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  buttonText: {
+    ...Typography.bodySemiBold,
+    fontSize: 16,
+  },
+  friendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    paddingRight: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginRight: 10,
+    height: 40,
+  },
+  friendAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  friendName: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  checkmark: {
+    marginLeft: 6,
   },
 });

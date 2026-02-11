@@ -1,6 +1,8 @@
 import { SPRING_CONFIG } from '@/constants/Animations';
 import { Typography } from '@/constants/Typography';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { supabaseService } from '@/services/supabaseService';
 import { saveUserProfile, UserProfile } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
@@ -40,6 +42,7 @@ export default function EditProfileModal({
   onSave,
 }: EditProfileModalProps) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [username, setUsername] = useState(initialProfile.username);
   const [email, setEmail] = useState(initialProfile.email);
   const [avatarUri, setAvatarUri] = useState(initialProfile.avatarUri);
@@ -232,10 +235,25 @@ export default function EditProfileModal({
       
       let finalAvatarUri = avatarUri;
       
-      // Save image permanently if it's a new selection
+      // Upload to Supabase if it's a new selection
       if (avatarUri && avatarUri !== initialProfile.avatarUri) {
-        console.log('🔄 New avatar detected, saving permanently...');
-        finalAvatarUri = await saveImagePermanently(avatarUri);
+         if (user) {
+             console.log('☁️ Uploading avatar to Supabase...');
+             setIsLoading(true);
+             const publicUrl = await supabaseService.uploadAvatar(user.id, avatarUri);
+             if (publicUrl) {
+                 finalAvatarUri = publicUrl;
+                 console.log('✅ Avatar uploaded:', publicUrl);
+             } else {
+                 console.warn('⚠️ Upload failed, falling back to local storage');
+                 finalAvatarUri = await saveImagePermanently(avatarUri);
+             }
+             setIsLoading(false);
+         } else {
+             // Fallback for guest/local (shouldn't happen in this app mostly)
+             console.log('🔄 Local user, saving permanently...');
+             finalAvatarUri = await saveImagePermanently(avatarUri);
+         }
       }
       
       const updatedProfile: UserProfile = {

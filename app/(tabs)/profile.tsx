@@ -3,14 +3,16 @@ import EditProfileModal from '@/components/EditProfileModal';
 import ProfileMenuItem from '@/components/ProfileMenuItem';
 import { SPRING_CONFIG } from '@/constants/Animations';
 import { Typography } from '@/constants/Typography';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { apiService } from '@/services/apiService';
-import { getUserProfile, UserProfile } from '@/utils/storage';
+import { supabaseService } from '@/services/supabaseService';
+import { UserProfile } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
-// Removed ScrollView from react-native-gesture-handler to avoid freezes
+import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -21,9 +23,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
+  const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<UserProfile>({
-    username: 'John Doe',
-    email: 'john.doe@example.com',
+    username: 'User',
+    email: '',
   });
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -41,8 +44,16 @@ export default function ProfileScreen() {
   }, []);
   
   const loadProfile = async () => {
-    const userProfile = await getUserProfile();
-    setProfile(userProfile);
+    if (!user) return;
+    
+    // Load from Supabase profile
+    const supaProfile = await supabaseService.getProfile(user.id);
+    
+    setProfile({
+      username: supaProfile?.username || user.email?.split('@')[0] || 'User',
+      email: user.email || '',
+      avatarUri: supaProfile?.avatar_url || undefined,
+    });
   };
 
   const loadSystemPrompt = async () => {
@@ -68,8 +79,41 @@ export default function ProfileScreen() {
     toggleTheme();
   };
   
-  const handleSaveProfile = (updatedProfile: UserProfile) => {
+  const handleSaveProfile = async (updatedProfile: UserProfile) => {
     setProfile(updatedProfile);
+    
+    // Also update in Supabase
+    if (user) {
+      await supabaseService.updateProfile(user.id, {
+        username: updatedProfile.username,
+        avatar_url: updatedProfile.avatarUri || null,
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+          },
+        },
+      ]
+    );
+  };
+
+  const copyToClipboard = async () => {
+    if (!user) return;
+    await Clipboard.setStringAsync(user.id);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert('Copied', 'User ID copied to clipboard');
   };
   
   return (
@@ -90,6 +134,10 @@ export default function ProfileScreen() {
           <Animated.View style={headerAnimatedStyle}>
             <Text style={[styles.name, { color: colors.text }]}>{profile.username}</Text>
             <Text style={[styles.email, { color: colors.textSecondary }]}>{profile.email}</Text>
+            <TouchableOpacity onPress={copyToClipboard} style={styles.idContainer}>
+                <Text style={[styles.userId, { color: colors.textSecondary }]}>ID: {user?.id?.substring(0, 8)}... <Text style={{fontSize: 10}}>(Tap to copy)</Text></Text>
+                <Ionicons name="copy-outline" size={12} color={colors.textSecondary} style={{marginLeft: 4}}/>
+            </TouchableOpacity>
           </Animated.View>
         </View>
 
@@ -158,7 +206,7 @@ export default function ProfileScreen() {
           <ProfileMenuItem
             icon="log-out-outline"
             title="Logout"
-            onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+            onPress={handleLogout}
           />
         </View>
       </ScrollView>
@@ -207,6 +255,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 4,
     textAlign: 'center',
+  },
+  idContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    padding: 4,
+    borderRadius: 4,
+  },
+  userId: {
+    ...Typography.caption,
+    fontSize: 12,
   },
   section: {
     paddingHorizontal: 16,

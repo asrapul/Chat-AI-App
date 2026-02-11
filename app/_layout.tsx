@@ -1,62 +1,72 @@
 import SplashScreen from '@/components/SplashScreen';
+import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
-import { getOnboardingCompleted } from '@/utils/storage';
 import {
-  Poppins_400Regular,
-  Poppins_500Medium,
-  Poppins_600SemiBold
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold
 } from '@expo-google-fonts/poppins';
 import {
-  Sora_400Regular,
-  Sora_600SemiBold,
-  Sora_700Bold
+    Sora_400Regular,
+    Sora_600SemiBold,
+    Sora_700Bold
 } from '@expo-google-fonts/sora';
 import * as Font from 'expo-font';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+const isWeb = Platform.OS === 'web';
+
 function RootLayoutContent() {
-  const { colorScheme } = useTheme();
-  // Initially false to bypass splash (DEBUG)
-  const [showSplash, setShowSplash] = useState(true);
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const { colorScheme, colors } = useTheme();
+  const { session, loading: authLoading, isOnboardingCompleted } = useAuth();
+  // Skip splash on web — BlurView/Reanimated don't render properly
+  const [showSplash, setShowSplash] = useState(!isWeb);
   const [isReady, setIsReady] = useState(false);
   const [fontsLoaded, setFontsLoaded] = useState(false);
-  const [splashAnimationFinished, setSplashAnimationFinished] = useState(false);
+  const [splashAnimationFinished, setSplashAnimationFinished] = useState(isWeb);
 
   useEffect(() => {
     prepare();
     
-    // Global safety net: Force ready after 5 seconds
+    // Global safety net: Force ready after 3 seconds
     const safetyTimer = setTimeout(() => {
       console.log('⚠️ Safety timer triggered: Forcing app ready');
       setFontsLoaded(true);
       setIsReady(true);
-    }, 5000);
+      setSplashAnimationFinished(true);
+      setShowSplash(false);
+    }, 3000);
     
     return () => clearTimeout(safetyTimer);
   }, []);
 
+  // Handle auth-based routing
+  useEffect(() => {
+    if (authLoading || !isReady || !fontsLoaded) return;
+
+    if (!session) {
+      // Not logged in → show auth screen
+      router.replace('/auth/login');
+    }
+  }, [session, authLoading, isReady, fontsLoaded]);
+
   // Transition from splash to app when everything is ready
   useEffect(() => {
     if (isReady && fontsLoaded && splashAnimationFinished) {
-      if (needsOnboarding) {
+      if (!isOnboardingCompleted && session) {
         router.replace('/onboarding');
       }
       setShowSplash(false);
     }
-  }, [isReady, fontsLoaded, splashAnimationFinished, needsOnboarding]);
+  }, [isReady, fontsLoaded, splashAnimationFinished, isOnboardingCompleted, session]);
 
   const prepare = async () => {
     try {
-      // Load Onboarding status
-      const completed = await getOnboardingCompleted();
-      setNeedsOnboarding(!completed);
-
-      // Load Fonts
       // Load Fonts with timeout
       await Promise.race([
         Font.loadAsync({
@@ -72,10 +82,9 @@ function RootLayoutContent() {
       
       // Setup notification handling
       const { addNotificationResponseReceivedListener } = await import('@/utils/notifications');
-      addNotificationResponseReceivedListener((response) => {
+      addNotificationResponseReceivedListener((response: any) => {
         const data = response.notification.request.content.data;
         if (data.type === 'digest') {
-          // Redirect to digest list page as requested
           router.replace('/(tabs)/digest');
         }
       });
@@ -98,6 +107,23 @@ function RootLayoutContent() {
   return (
     <>
       <Stack>
+        {/* Auth screens (shown when not logged in) */}
+        <Stack.Screen 
+          name="auth/login" 
+          options={{ 
+            headerShown: false,
+            gestureEnabled: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="auth/register" 
+          options={{ 
+            headerShown: false,
+            gestureEnabled: false,
+          }} 
+        />
+
+        {/* Main app screens (shown when logged in) */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen 
           name="onboarding"
@@ -148,7 +174,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <RootLayoutContent />
+        <AuthProvider>
+          <RootLayoutContent />
+        </AuthProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

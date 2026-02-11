@@ -21,11 +21,20 @@ import Animated, {
 interface ChatBubbleProps {
   message: Message;
   index?: number;
+  currentUserId?: string;
 }
 
-export default function ChatBubble({ message, index = 0 }: ChatBubbleProps) {
+export default function ChatBubble({ message, index = 0, currentUserId }: ChatBubbleProps) {
   const { colors, isDark } = useTheme();
+  
+  // Logic for separation
   const isAI = message.sender === 'ai';
+  const isMe = message.sender === 'user' && (message.senderId === currentUserId || !message.senderId && !message.senderName); 
+  // If no senderId/Name, assume it's me (legacy behavior) or if IDs match.
+  // Actually, for multi-user, we need to be strict. 
+  // If senderId is present and != currentUserId, it's NOT ME.
+  
+  const isOtherUser = !isAI && !isMe;
   const [isSpeaking, setIsSpeaking] = useState(false);
   
   const opacity = useSharedValue(0);
@@ -98,10 +107,23 @@ export default function ChatBubble({ message, index = 0 }: ChatBubbleProps) {
   return (
     <Animated.View style={[
       styles.container, 
-      isAI ? styles.aiRow : styles.userRow, 
+      isMe ? styles.userRow : styles.otherRow, 
       animatedStyle
     ]}>
-      <View style={[styles.bubbleWrapper, isAI ? styles.aiWrapper : styles.userWrapper]}>
+      <View style={[styles.bubbleWrapper, isMe ? styles.userWrapper : styles.otherWrapper]}>
+        
+        {/* Show Name/Avatar for Other Users */}
+        {isOtherUser && (
+            <View style={styles.senderInfo}>
+                <Image 
+                    source={{ uri: message.senderAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(message.senderName || 'User')}&background=random` }} 
+                    style={styles.senderAvatar}
+                />
+                <Text style={[styles.senderName, { color: colors.textSecondary }]}>
+                    {message.senderName || 'User'}
+                </Text>
+            </View>
+        )}
         {isAI ? (
           <View style={[styles.aiBubbleContainer, { borderColor: colors.glassBorder }]}>
             <BlurView intensity={isDark ? 40 : 60} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
@@ -149,24 +171,44 @@ export default function ChatBubble({ message, index = 0 }: ChatBubbleProps) {
             </View>
           </View>
         ) : (
-          <View style={styles.userBubbleContainer}>
-            <LinearGradient
-              colors={colors.userBubble as any}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.userGradient}
-            >
-              {/* Display uploaded image if present */}
-              {message.imageUrl && (
-                <Image 
-                  source={{ uri: message.imageUrl }} 
-                  style={styles.userImage}
-                  resizeMode="cover"
-                />
-              )}
-              <Text style={[styles.userText, { color: colors.userBubbleText }]}>{message.text}</Text>
-            </LinearGradient>
-            <View style={[styles.glow, { backgroundColor: colors.primary, shadowColor: colors.primary }]} />
+          <View style={[styles.userBubbleContainer, 
+            !isMe && { 
+                backgroundColor: isDark ? '#333' : '#f0f0f0',
+                borderBottomLeftRadius: 6,
+                borderBottomRightRadius: 24,
+            }
+          ]}>
+            {isMe ? (
+                <LinearGradient
+                  colors={colors.userBubble as any}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.userGradient}
+                >
+                  {/* Display uploaded image if present */}
+                  {message.imageUrl && (
+                    <Image 
+                      source={{ uri: message.imageUrl }} 
+                      style={styles.userImage}
+                      resizeMode="cover"
+                    />
+                  )}
+                  <Text style={[styles.userText, { color: colors.userBubbleText }]}>{message.text}</Text>
+                </LinearGradient>
+            ) : (
+                <View style={styles.otherUserBubble}>
+                   {message.imageUrl && (
+                    <Image 
+                      source={{ uri: message.imageUrl }} 
+                      style={styles.userImage}
+                      resizeMode="cover"
+                    />
+                  )}
+                  <Text style={[styles.userText, { color: colors.text }]}>{message.text}</Text>
+                </View>
+            )}
+            
+            {isMe && <View style={[styles.glow, { backgroundColor: colors.primary, shadowColor: colors.primary }]} />}
           </View>
         )}
       </View>
@@ -183,6 +225,9 @@ const styles = StyleSheet.create({
   aiRow: {
     alignItems: 'flex-start',
   },
+  otherRow: {
+    alignItems: 'flex-start',
+  },
   userRow: {
     alignItems: 'flex-end',
   },
@@ -192,8 +237,27 @@ const styles = StyleSheet.create({
   aiWrapper: {
     width: '100%',
   },
+  otherWrapper: {
+     alignItems: 'flex-start',
+  },
   userWrapper: {
     alignItems: 'flex-end',
+  },
+  senderInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    marginLeft: 4,
+  },
+  senderAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  senderName: {
+    ...Typography.caption,
+    fontSize: 12,
   },
   aiBubbleContainer: {
     borderRadius: 20,
@@ -234,6 +298,12 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderBottomRightRadius: 6,
     zIndex: 1,
+  },
+  otherUserBubble: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderBottomLeftRadius: 6,
   },
   userText: {
     ...Typography.bodyMedium,

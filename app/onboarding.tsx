@@ -1,6 +1,6 @@
 import { SPRING_CONFIG } from '@/constants/Animations';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { setOnboardingCompleted } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -80,11 +80,12 @@ function SlideItem({ item, index }: SlideItemProps) {
 
 export default function OnboardingScreen() {
   const { colors } = useTheme();
+  const { completeOnboarding } = useAuth();
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   
   const handleSkip = async () => {
-    await setOnboardingCompleted(true);
+    await completeOnboarding();
     router.replace('/');
   };
   
@@ -95,7 +96,7 @@ export default function OnboardingScreen() {
   };
   
   const handleGetStarted = async () => {
-    await setOnboardingCompleted(true);
+    await completeOnboarding();
     router.replace('/');
   };
   
